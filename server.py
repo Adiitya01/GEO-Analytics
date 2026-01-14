@@ -22,6 +22,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+def health_check():
+    return {"status": "ok", "message": "GEO Analytics API is running"}
+
 class AnalysisRequest(BaseModel):
     url: Optional[str] = ""
     points: Optional[str] = ""
