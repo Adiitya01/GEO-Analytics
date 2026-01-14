@@ -2,17 +2,15 @@
 
 import json
 import traceback
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from typing import List
 from app.schemas import CompanyUnderstanding, GeneratedPrompt, ModelResponse, EvaluationMetric, VisibilityReport
 from app.config import GEMINI_API_KEY, GEMINI_MODEL_NAME
 
+client = None
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-
-# Note: We create the model instances as needed if tools change, 
-# but for now we'll define the base model name.
-BASE_MODEL = genai.GenerativeModel(GEMINI_MODEL_NAME)
+    client = genai.Client(api_key=GEMINI_API_KEY)
 
 def evaluate_visibility(company: CompanyUnderstanding, prompts: List[GeneratedPrompt], use_google_search: bool = False) -> VisibilityReport:
     """
@@ -20,30 +18,32 @@ def evaluate_visibility(company: CompanyUnderstanding, prompts: List[GeneratedPr
     """
     model_results = []
     
-    # Configure tools if google search is requested
-    # We create a new model instance here to ensure tools are applied correctly per request
+    # Configure config for google search if requested
+    generation_config = {}
     if use_google_search:
         try:
             # Use the correct google_search tool format
-            model = genai.GenerativeModel(
-                model_name=GEMINI_MODEL_NAME,
-                tools=[{"google_search": {}}]
-            )
+            generation_config['tools'] = [{"google_search": {}}]
             print("[INFO] Using Google Search grounding (google_search)")
         except Exception as e:
-            print(f"[WARNING] Google Search grounding not available: {e}")
+            print(f"[WARNING] Google Search grounding setup failed: {e}")
             print("[INFO] Falling back to standard model without grounding")
-            model = BASE_MODEL
-            use_google_search = False  # Disable flag since we're falling back
-    else:
-        model = BASE_MODEL
-    
+            use_google_search = False
+
     for gen_prompt in prompts:
         print(f"[INFO] Testing prompt: {gen_prompt.prompt_text} (Google Search Grounding: {use_google_search})")
         
+        response_text = ""
         # 1. Get raw AI response
         try:
-            ai_response = model.generate_content(gen_prompt.prompt_text)
+            if not client:
+                 raise ValueError("GEMINI_API_KEY not configured")
+
+            ai_response = client.models.generate_content(
+                model=GEMINI_MODEL_NAME,
+                contents=gen_prompt.prompt_text,
+                config=generation_config if use_google_search else None
+            )
             response_text = ai_response.text
             print(f"[SUCCESS] Generated response ({len(response_text)} chars)")
         except Exception as e:
@@ -90,9 +90,10 @@ Return valid JSON:
 """
         try:
             # We use the base model for evaluation to keep it fast and separate from search results
-            eval_ai = BASE_MODEL.generate_content(
-                eval_prompt,
-                generation_config={"response_mime_type": "application/json"}
+            eval_ai = client.models.generate_content(
+                model=GEMINI_MODEL_NAME,
+                contents=eval_prompt,
+                config={"response_mime_type": "application/json"}
             )
             eval_data = json.loads(eval_ai.text)
             
@@ -107,7 +108,8 @@ Return valid JSON:
                 
         except Exception as e:
             print(f"[ERROR] Evaluation parsing failed: {e}")
-            print(f"[DEBUG] Raw eval response: {eval_ai.text if 'eval_ai' in locals() else 'N/A'}")
+            if 'eval_ai' in locals():
+                print(f"[DEBUG] Raw eval response: {eval_ai.text}")
             metric = EvaluationMetric(
                 brand_present=company.company_name.lower() in response_text.lower() if company.company_name else False,
                 recommendation_rank=None,
