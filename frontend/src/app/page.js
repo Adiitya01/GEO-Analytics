@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://geo-analytics.onrender.com';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://geo-backend-0z6g.onrender.com';
 
 export default function Home() {
   const [url, setUrl] = useState('');
