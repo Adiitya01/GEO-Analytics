@@ -11,10 +11,16 @@ class CompanyUnderstanding(BaseModel):
     target_users: List[str] = Field(default_factory=list)
     core_problems_solved: List[str] = Field(default_factory=list)
     manual_points: Optional[str] = None
+    region: str = Field("Global", description="Target region for analysis")
 
 class GeneratedPrompt(BaseModel):
     prompt_text: str
     intent_category: str  # e.g., Unbiased Discovery, Direct Comparison, Specific Solution
+
+class CompetitorRank(BaseModel):
+    name: str
+    rank: Optional[int] = None
+    url_cited: bool = False
 
 class EvaluationMetric(BaseModel):
     brand_present: bool
@@ -23,6 +29,7 @@ class EvaluationMetric(BaseModel):
     accuracy_score: float  # 0 to 1
     sentiment: str  # Positive, Neutral, Negative
     competitors_mentioned: List[str]
+    competitor_ranks: List[CompetitorRank] = Field(default_factory=list)
 
 class ModelResponse(BaseModel):
     model_name: str
@@ -36,4 +43,5 @@ class VisibilityReport(BaseModel):
     model_results: List[ModelResponse]
     key_findings: List[str]
     optimizer_tips: List[str]
+    competitor_summary: List[str] = Field(default_factory=list)
 

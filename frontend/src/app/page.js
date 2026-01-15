@@ -2,11 +2,12 @@
 
 import { useState } from 'react';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://geo-backend-0z6g.onrender.com';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export default function Home() {
   const [url, setUrl] = useState('');
   const [points, setPoints] = useState('');
+  const [region, setRegion] = useState('Global');
   const [loading, setLoading] = useState(false);
   const [evaluating, setEvaluating] = useState({}); // Tracking individual evaluations
   const [evaluatingGoogle, setEvaluatingGoogle] = useState({}); // Tracking Google search evaluations
@@ -20,6 +21,9 @@ export default function Home() {
   const [toasts, setToasts] = useState([]); // For notifications
   const [error, setError] = useState(null);
   const [manualPromptText, setManualPromptText] = useState('');
+  const [bulkPromptText, setBulkPromptText] = useState('');
+  const [showBulkImport, setShowBulkImport] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const addToast = (message, type = 'info') => {
     const id = Date.now();
@@ -66,7 +70,7 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url, points }),
+        body: JSON.stringify({ url, points, region }),
       });
 
       if (!response.ok) {
@@ -141,6 +145,56 @@ export default function Home() {
     }
   };
 
+  const handleRefreshPrompts = async () => {
+    setRefreshing(true);
+    addToast("Generating new set of prompts...", "info");
+    try {
+      const response = await fetch(`${API_BASE_URL}/refresh-prompts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(result.company_profile),
+      });
+
+      if (!response.ok) throw new Error("Failed to refresh prompts");
+
+      const data = await response.json();
+      setResult(prev => ({ ...prev, prompts: data }));
+      setEvalResults({});
+      setGoogleEvalResults({});
+      addToast("✅ Prompts refreshed!", "success");
+    } catch (err) {
+      addToast("❌ Refresh failed: " + err.message, "error");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleBulkImport = async () => {
+    if (!bulkPromptText.trim()) return;
+
+    const prompts = bulkPromptText.split('\n').filter(p => p.trim());
+    try {
+      const response = await fetch(`${API_BASE_URL}/bulk-import-prompts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompts }),
+      });
+
+      if (!response.ok) throw new Error("Failed to import prompts");
+
+      const data = await response.json();
+      setResult(prev => ({
+        ...prev,
+        prompts: [...data, ...prev.prompts]
+      }));
+      setBulkPromptText('');
+      setShowBulkImport(false);
+      addToast(`✅ Imported ${data.length} prompts!`, "success");
+    } catch (err) {
+      addToast("❌ Import failed: " + err.message, "error");
+    }
+  };
+
   const handleEvaluateAll = async () => {
     setEvaluatingAll(true);
     addToast("Starting Full Visibility Audit...", "info");
@@ -167,6 +221,14 @@ export default function Home() {
 
       const data = await response.json();
       setReport(data);
+
+      // Sync results back to individual states so the grid UI shows they were checked
+      const newResults = {};
+      data.model_results.forEach((res, i) => {
+        newResults[i] = res;
+      });
+      setEvalResults(newResults);
+
       addToast("✅ Full audit complete! Score: " + data.overall_score + "/100", "success");
     } catch (err) {
       console.error('Full audit error:', err);
@@ -187,14 +249,30 @@ export default function Home() {
       </header>
 
       <div className="input-group">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Company Website</label>
-          <input
-            type="text"
-            placeholder="https://example.com"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-          />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Company Website</label>
+            <input
+              type="text"
+              placeholder="https://example.com"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Target Region</label>
+            <select
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+            >
+              <option value="Global">Global</option>
+              <option value="North America">North America</option>
+              <option value="Europe">Europe</option>
+              <option value="Asia">Asia</option>
+              <option value="India">India</option>
+              <option value="Middle East">Middle East</option>
+            </select>
+          </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -223,7 +301,10 @@ export default function Home() {
           <div className="company-info" style={{ border: 'none', padding: 0 }}>
             <div>
               <div className="company-name">{result.company_name}</div>
-              <div className="industry-badge" style={{ marginTop: '8px' }}>{result.industry}</div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <div className="industry-badge">{result.industry}</div>
+                <div className="industry-badge" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--primary-light)' }}>🌍 {result.company_profile.region}</div>
+              </div>
             </div>
             <button
               className="secondary-btn"
@@ -253,6 +334,19 @@ export default function Home() {
                   </ul>
                 </div>
               </div>
+
+              {report.competitor_summary && report.competitor_summary.length > 0 && (
+                <div style={{ marginTop: '32px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '24px' }}>
+                  <h4 style={{ color: '#a1a1aa', marginBottom: '16px' }}>Competitor Visibility Insights</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+                    {report.competitor_summary.map((s, i) => (
+                      <div key={i} style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', fontSize: '0.85rem' }}>
+                        {s}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -272,12 +366,44 @@ export default function Home() {
               <button onClick={handleAddManualPrompt} className="secondary-btn" style={{ whiteSpace: 'nowrap', background: 'var(--primary)', borderColor: 'var(--primary)' }}>
                 + Add Prompt
               </button>
+              <button
+                onClick={() => setShowBulkImport(!showBulkImport)}
+                className="secondary-btn"
+                style={{ whiteSpace: 'nowrap', background: 'rgba(255,255,255,0.05)' }}
+              >
+                {showBulkImport ? 'Cancel Bulk' : 'Bulk Import'}
+              </button>
             </div>
+
+            {showBulkImport && (
+              <div style={{ marginTop: '16px', animation: 'fadeIn 0.3s ease' }}>
+                <textarea
+                  placeholder="Paste multiple prompts here, one per line..."
+                  rows={5}
+                  value={bulkPromptText}
+                  onChange={(e) => setBulkPromptText(e.target.value)}
+                  style={{ width: '100%', marginBottom: '12px' }}
+                />
+                <button onClick={handleBulkImport} className="secondary-btn" style={{ background: 'var(--accent)', border: 'none' }}>
+                  Import Prompts
+                </button>
+              </div>
+            )}
           </div>
 
-          <div style={{ marginBottom: '16px' }}>
-            <h3 style={{ fontSize: '1.25rem', marginBottom: '8px' }}>Suggested AI Test Prompts</h3>
-            <p style={{ color: '#a1a1aa' }}>Use these prompts to see how AI models perceive your brand.</p>
+          <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+            <div>
+              <h3 style={{ fontSize: '1.25rem', marginBottom: '8px' }}>Suggested AI Test Prompts</h3>
+              <p style={{ color: '#a1a1aa' }}>Use these prompts to see how AI models perceive your brand.</p>
+            </div>
+            <button
+              className="secondary-btn"
+              onClick={handleRefreshPrompts}
+              disabled={refreshing}
+              style={{ padding: '8px 16px', fontSize: '0.8rem' }}
+            >
+              {refreshing ? 'Refreshing...' : '🔄 Refresh Prompts'}
+            </button>
           </div>
 
           <div className="prompt-grid">

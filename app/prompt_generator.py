@@ -16,11 +16,13 @@ def generate_user_prompts(company: CompanyUnderstanding) -> List[GeneratedPrompt
     """
     prompt = f"""
 You are an expert in Generative Engine Optimization (GEO). Your task is to generate 20 realistic and highly diverse user queries that someone might ask an AI (like ChatGPT or Gemini) to find services or companies in the industry: {company.industry}.
+The user is located in or interested in the region: {company.region}. Ensure queries reflect local terminology and search intent for this specific market.
 
 Company Context:
 - Name: {company.company_name}
 - Offerings: {", ".join(company.offerings)}
 - Problems Solved: {", ".join(company.core_problems_solved)}
+- Focus Region: {company.region}
 
 Generate a total of 20 queries distributed across these categories:
 1. Unbiased Discovery: (Broad searches for top companies/tools in the sector)

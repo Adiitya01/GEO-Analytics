@@ -29,6 +29,7 @@ def health_check():
 class AnalysisRequest(BaseModel):
     url: Optional[str] = ""
     points: Optional[str] = ""
+    region: Optional[str] = "Global"
 
 class AnalysisResponse(BaseModel):
     company_name: str
@@ -54,7 +55,7 @@ async def analyze_company(request: AnalysisRequest):
         clean = clean_text(raw_text)
         chunks = chunk_text(clean)
         
-        company_profile = summarize_company(chunks, manual_points=request.points)
+        company_profile = summarize_company(chunks, manual_points=request.points, region=request.region)
         prompts = generate_user_prompts(company_profile)
         
         return AnalysisResponse(
@@ -63,6 +64,24 @@ async def analyze_company(request: AnalysisRequest):
             prompts=prompts,
             company_profile=company_profile
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/refresh-prompts", response_model=List[GeneratedPrompt])
+async def refresh_prompts(company_profile: CompanyUnderstanding):
+    try:
+        # Simply call the generator again for a fresh set
+        return generate_user_prompts(company_profile)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class BulkImportRequest(BaseModel):
+    prompts: List[str]
+
+@app.post("/bulk-import-prompts", response_model=List[GeneratedPrompt])
+async def bulk_import_prompts(request: BulkImportRequest):
+    try:
+        return [GeneratedPrompt(prompt_text=p, intent_category="Imported") for p in request.prompts if p.strip()]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -9,11 +9,10 @@ def clean_text(text: str) -> str:
     """Cleans text by removing excessive whitespace and non-standard characters."""
     if not text:
         return ""
-    # Replace multiple whitespaces/newlines with a single space
+    # Remove control characters and excessive whitespace, but keep most printable characters
+    text = re.sub(r"[\x00-\x1F\x7F]", "", text)
+    # Filter to only printable characters if desired, or just replace multiple spaces
     text = re.sub(r"\s+", " ", text)
-    # Remove characters that are likely noise, but keep punctuation and common symbols
-    # Keeping: a-z, A-Z, 0-9, common punctuation, symbols like $, %, &
-    text = re.sub(r"[^a-zA-Z0-9\s.,!?;:()\'\"$%\-&]", "", text)
     return text.strip()
 
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 100) -> list[str]:

@@ -9,17 +9,17 @@ client = None
 if GEMINI_API_KEY:
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-def summarize_company(chunks: list[str], manual_points: str = "") -> CompanyUnderstanding:
+def summarize_company(chunks: list[str], manual_points: str = "", region: str = "Global") -> CompanyUnderstanding:
     """
     Summarizes company information by combining website content and manual user points.
     """
     combined_site_text = "\n".join(chunks[:8]) if chunks else "No website content available."
     
     prompt = f"""
-You are a professional business analyst. Your task is to extract key information about a company.
+You are a professional business analyst focusing on the {region} market. Your task is to extract key information about a company.
 You have two sources of information:
 1. Website Content (Crawl)
-2. Manual User Points (Specific Details provided by the user)
+2. Manual User Points (Specific Details)
 
 ---
 WEBSITE CONTENT:
@@ -34,21 +34,20 @@ MANUAL USER POINTS:
 \"\"\"
 
 Instructions:
-1. Extraction: Merge information from both sources. Prioritize Manual User Points if there is a conflict.
-2. If a field (like target_users) is unknown, return an empty list [], UNLESS it is a string field, then return "N/A".
+1. Extraction: Merge information from both sources. Prioritize Manual User Points.
+2. If a field is unknown, return an empty list [] or "N/A".
 3. Return valid JSON only.
 
 JSON Schema:
 {{
-  "company_name": "Official name of the company.",
-  "company_summary": "A 2-3 sentence overview.",
-  "industry": "Primary industry category.",
+  "company_name": "Official name.",
+  "company_summary": "2-3 sentence overview.",
+  "industry": "Primary industry.",
   "offerings": ["List of products/services"],
   "target_users": ["List of customers"],
-  "core_problems_solved": ["List of problems solved"]
+  "core_problems_solved": ["List of problems"]
 }}
 """
-
     try:
         if not client:
             raise ValueError("GEMINI_API_KEY not configured")
@@ -74,29 +73,25 @@ JSON Schema:
         
         # Ensure lists are actually lists to avoid Pydantic errors
         for field in ["offerings", "target_users", "core_problems_solved"]:
-            if field in data and isinstance(data[field], str):
-                data[field] = [data[field]] if data[field] not in ["Information not available", "N/A", ""] else []
-            elif field not in data:
+            val = data.get(field)
+            if isinstance(val, str):
+                data[field] = [val] if val not in ["Information not available", "N/A", "None", ""] else []
+            elif val is None or not isinstance(val, list):
                 data[field] = []
         
-        # Ensure name is not "Unknown" if we can do better
-        if data.get("company_name") == "Unknown" and manual_points:
-            # Very simple heuristic: first line or first few words of manual points might contain the name
-            # But better to just let it be if the AI couldn't find it. 
-            # However, we'll strip any "Official name of..." boilerplate if AI returned that
-            pass
-
-        return CompanyUnderstanding(**data, manual_points=manual_points)
+        # Ensure company_name and industry are strings
+        if not isinstance(data.get("company_name"), str):
+            data["company_name"] = "Analysis Pending"
+        if not isinstance(data.get("industry"), str):
+            data["industry"] = "Industry: Undefined"
+        
+        return CompanyUnderstanding(**data, manual_points=manual_points, region=region)
     
     except Exception as e:
         print(f"[ERROR] Summarization failed: {e}")
-        if 'response' in locals():
-            print(f"[DEBUG] Raw response: {response.text}")
-        
-        # Fallback: if we have manual points, maybe we can guess the name?
-        # For now, just return defaults but keep manual_points
         return CompanyUnderstanding(
             company_name="Analysis Pending" if manual_points else "Unknown",
             company_summary="Could not automatically summarize company data.",
-            manual_points=manual_points
+            manual_points=manual_points,
+            region=region
         )
