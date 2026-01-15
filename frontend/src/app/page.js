@@ -249,30 +249,14 @@ export default function Home() {
       </header>
 
       <div className="input-group">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Company Website</label>
-            <input
-              type="text"
-              placeholder="https://example.com"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Target Region</label>
-            <select
-              value={region}
-              onChange={(e) => setRegion(e.target.value)}
-            >
-              <option value="Global">Global</option>
-              <option value="North America">North America</option>
-              <option value="Europe">Europe</option>
-              <option value="Asia">Asia</option>
-              <option value="India">India</option>
-              <option value="Middle East">Middle East</option>
-            </select>
-          </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Company Website</label>
+          <input
+            type="text"
+            placeholder="https://example.com"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -285,7 +269,23 @@ export default function Home() {
           />
         </div>
 
-        <button onClick={handleAnalyze} disabled={loading}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '200px' }}>
+          <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Target Region</label>
+          <select
+            value={region}
+            onChange={(e) => setRegion(e.target.value)}
+            style={{ padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', color: 'white', border: '1px solid rgba(255,255,255,0.1)' }}
+          >
+            <option value="Global">Global</option>
+            <option value="North America">North America</option>
+            <option value="Europe">Europe</option>
+            <option value="Asia">Asia</option>
+            <option value="India">India</option>
+            <option value="Middle East">Middle East</option>
+          </select>
+        </div>
+
+        <button onClick={handleAnalyze} disabled={loading} style={{ marginTop: '12px' }}>
           {loading ? 'Analyzing...' : 'Start Analysis'}
         </button>
 
