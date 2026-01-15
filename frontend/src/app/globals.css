@@ -123,7 +123,8 @@ h1 {
 }
 
 input,
-textarea {
+textarea,
+select {
   background: var(--input-bg);
   border: 1px solid var(--card-border);
   border-radius: 12px;
@@ -133,10 +134,26 @@ textarea {
   font-size: 1rem;
   outline: none;
   transition: all 0.2s ease;
+  appearance: none;
+}
+
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  background-size: 16px;
+  padding-right: 48px;
+}
+
+option {
+  background-color: #1e293b;
+  /* Solid slate color for visibility */
+  color: white;
 }
 
 input:focus,
-textarea:focus {
+textarea:focus,
+select:focus {
   border-color: var(--primary);
   background: rgba(255, 255, 255, 0.08);
 }
