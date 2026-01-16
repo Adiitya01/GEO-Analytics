@@ -24,7 +24,11 @@ def fetch_page(session: requests.Session, url: str) -> str:
         text = soup.get_text(separator=" ", strip=True)
         return text
     except Exception as e:
-        print(f"[WARNING] Failed to fetch {url}: {e}")
+        # It is normal for some sub-pages explicitly checked to not exist.
+        if "404" in str(e):
+            print(f"[INFO] Skipped {url} (Not Found)")
+        else:
+            print(f"[WARNING] Failed to fetch {url}: {e}")
         return ""
 
 def load_website_content(base_url: str) -> str:
