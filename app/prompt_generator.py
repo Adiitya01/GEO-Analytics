@@ -50,17 +50,37 @@ Requirements:
                 "response_mime_type": "application/json"
             }
         )
+
+        # Clean up response text in case of markdown blocks
+        res_text = response.text.strip()
+        if res_text.startswith("```"):
+            import re
+            # Try to extract content between first [ and last ] or first { and last }
+            json_match = re.search(r"(\[.*\]|{.*})", res_text, re.DOTALL)
+            if json_match:
+                res_text = json_match.group(1)
+            else:
+                res_text = res_text.replace("```json", "", 1).replace("```", "", 1).strip()
         
-        data = json.loads(response.text)
+        data = json.loads(res_text)
+        
         # Robust handling for list formats
         if isinstance(data, dict):
-            for key in ["queries", "prompts", "results", "data"]:
+            for key in ["queries", "prompts", "results", "data", "test_prompts"]:
                 if key in data and isinstance(data[key], list):
                     data = data[key]
                     break
         
         if not isinstance(data, list):
-            raise ValueError("AI did not return a list of prompts")
+            # If still a dict but didn't find a list key, try to use values if they are lists
+            if isinstance(data, dict):
+                for val in data.values():
+                    if isinstance(val, list):
+                        data = val
+                        break
+            
+            if not isinstance(data, list):
+                raise ValueError("AI did not return a list of prompts")
 
         return [GeneratedPrompt(**item) for item in data[:20]]
     

@@ -62,12 +62,18 @@ JSON Schema:
         
         # Clean up response text in case of markdown blocks
         res_text = response.text.strip()
-        if res_text.startswith("```json"):
-            res_text = res_text.replace("```json", "", 1).replace("```", "", 1).strip()
+        if res_text.startswith("```"):
+            # Find the first and last backticks to extract content
+            import re
+            json_match = re.search(r"({.*})", res_text, re.DOTALL)
+            if json_match:
+                res_text = json_match.group(1)
+            else:
+                res_text = res_text.replace("```json", "", 1).replace("```", "", 1).strip()
             
         data = json.loads(res_text)
         
-        # Handle list response
+        # Handle list response if AI wraps it
         if isinstance(data, list) and len(data) > 0:
             data = data[0]
         
@@ -75,17 +81,27 @@ JSON Schema:
         for field in ["offerings", "target_users", "core_problems_solved"]:
             val = data.get(field)
             if isinstance(val, str):
-                data[field] = [val] if val not in ["Information not available", "N/A", "None", ""] else []
+                data[field] = [val] if val.strip() and val not in ["Information not available", "N/A", "None", ""] else []
             elif val is None or not isinstance(val, list):
                 data[field] = []
         
         # Ensure company_name and industry are strings
-        if not isinstance(data.get("company_name"), str):
+        if not isinstance(data.get("company_name"), str) or not data.get("company_name"):
             data["company_name"] = "Analysis Pending"
-        if not isinstance(data.get("industry"), str):
+        if not isinstance(data.get("industry"), str) or not data.get("industry"):
             data["industry"] = "Industry: Undefined"
         
-        return CompanyUnderstanding(**data, manual_points=manual_points, region=region)
+        # Build the schema-compliant object
+        return CompanyUnderstanding(
+            company_name=data.get("company_name", "Analysis Pending"),
+            company_summary=data.get("company_summary", "Summary unavailable."),
+            industry=data.get("industry", "Industry: Undefined"),
+            offerings=data.get("offerings", []),
+            target_users=data.get("target_users", []),
+            core_problems_solved=data.get("core_problems_solved", []),
+            manual_points=manual_points,
+            region=region
+        )
     
     except Exception as e:
         print(f"[ERROR] Summarization failed: {e}")
