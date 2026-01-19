@@ -5,7 +5,7 @@ import traceback
 from google import genai
 from google.genai import types
 from typing import List
-from app.schemas import CompanyUnderstanding, GeneratedPrompt, ModelResponse, EvaluationMetric, VisibilityReport
+from app.schemas import CompanyUnderstanding, GeneratedPrompt, ModelResponse, EvaluationMetric, VisibilityReport, SearchSource
 from app.config import GEMINI_API_KEY, GEMINI_MODEL_NAME
 
 client = None
@@ -34,6 +34,7 @@ def evaluate_visibility(company: CompanyUnderstanding, prompts: List[GeneratedPr
         print(f"[INFO] Testing prompt: {gen_prompt.prompt_text} (Google Search Grounding: {use_google_search})")
         
         response_text = ""
+        sources = [] # Initialize here to ensure it always exists
         # 1. Get raw AI response
         try:
             if not client:
@@ -45,7 +46,28 @@ def evaluate_visibility(company: CompanyUnderstanding, prompts: List[GeneratedPr
                 config=generation_config if use_google_search else None
             )
             response_text = ai_response.text
-            print(f"[SUCCESS] Generated response ({len(response_text)} chars)")
+            
+            # Robust Source Extraction
+            if use_google_search:
+                # Add a "Primary Search Link" as a baseline reference
+                sources.append(SearchSource(
+                    title="Live Google Search Result",
+                    url="https://www.google.com/search?q=" + gen_prompt.prompt_text.replace(" ", "+")
+                ))
+
+                if hasattr(ai_response, 'grounding_metadata'):
+                    metadata = ai_response.grounding_metadata
+                    # Web chunks (Specific Cited links)
+                    if hasattr(metadata, 'grounding_chunks'):
+                        for chunk in metadata.grounding_chunks:
+                            if hasattr(chunk, 'web') and chunk.web:
+                                # Avoid duplicating the baseline search link
+                                sources.append(SearchSource(
+                                    title=chunk.web.title or "Deep Research Link",
+                                    url=chunk.web.uri
+                                ))
+
+            print(f"[SUCCESS] Generated response ({len(response_text)} chars, {len(sources)} sources found)")
         except Exception as e:
             error_msg = str(e)
             print(f"[ERROR] Content generation failed: {error_msg}")
@@ -140,7 +162,8 @@ Return valid JSON:
         model_results.append(ModelResponse(
             model_name="Google AI Search" if use_google_search else GEMINI_MODEL_NAME,
             response_text=response_text, # Return FULL text now
-            evaluation=metric
+            evaluation=metric,
+            sources=sources if use_google_search else []
         ))
 
     # 3. Calculate Overall Visibility Score and Competitor Insights

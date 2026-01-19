@@ -31,10 +31,16 @@ class EvaluationMetric(BaseModel):
     competitors_mentioned: List[str]
     competitor_ranks: List[CompetitorRank] = Field(default_factory=list)
 
+class SearchSource(BaseModel):
+    title: str
+    url: str
+
 class ModelResponse(BaseModel):
     model_name: str
     response_text: str
     evaluation: EvaluationMetric
+    sources: List[SearchSource] = Field(default_factory=list)
+
 
 class VisibilityReport(BaseModel):
     company_name: str

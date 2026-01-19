@@ -24,6 +24,7 @@ export default function Home() {
   const [bulkPromptText, setBulkPromptText] = useState('');
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
   const addToast = (message, type = 'info') => {
     const id = Date.now();
@@ -440,10 +441,20 @@ export default function Home() {
                   </div>
 
                   {(evalResults[index] || googleEvalResults[index]) && (
-                    <div className="eval-result-box" style={{ animation: 'fadeIn 0.3s ease', padding: '8px', fontSize: '0.7rem' }}>
-                      <div style={{ color: 'var(--primary-light)' }}>
-                        Rank: {evalResults[index]?.evaluation?.recommendation_rank || 'N/A'}{evalResults[index]?.evaluation?.url_cited && ' 🔗'} |
-                        GS: {googleEvalResults[index]?.evaluation?.recommendation_rank || 'N/A'}{googleEvalResults[index]?.evaluation?.url_cited && ' 🔗'}
+                    <div className="eval-result-box" style={{ animation: 'fadeIn 0.3s ease', padding: '12px', fontSize: '0.8rem', background: 'rgba(0,0,0,0.2)', borderRadius: '12px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ color: '#a1a1aa', fontSize: '0.7rem' }}>Gemini Rank:</span>
+                          <span className={`rank-badge ${evalResults[index]?.evaluation?.recommendation_rank ? '' : 'missing'}`} style={{ fontSize: '0.8rem', padding: '2px 8px' }}>
+                            {evalResults[index]?.evaluation?.recommendation_rank || 'N/A'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ color: '#a1a1aa', fontSize: '0.7rem' }}>Google Rank:</span>
+                          <span className={`rank-badge ${googleEvalResults[index]?.evaluation?.recommendation_rank ? '' : 'missing'}`} style={{ fontSize: '0.8rem', padding: '2px 8px' }}>
+                            {googleEvalResults[index]?.evaluation?.recommendation_rank || 'N/A'}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -485,9 +496,9 @@ export default function Home() {
       )}
 
       {selectedDetail && (
-        <div className="modal-backdrop" onClick={() => setSelectedDetail(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn" onClick={() => setSelectedDetail(null)}>&times;</button>
+        <div className="modal-backdrop" onClick={() => { setSelectedDetail(null); setShowDetails(false); }}>
+          <div className="modal-content" style={{ maxWidth: '950px' }} onClick={(e) => e.stopPropagation()}>
+            <button className="close-btn" onClick={() => { setSelectedDetail(null); setShowDetails(false); }}>&times;</button>
 
             <div className="modal-section">
               <span className="modal-label">Detailed Analysis: {selectedDetail.intent_category}</span>
@@ -495,57 +506,128 @@ export default function Home() {
             </div>
 
             <div className="modal-section" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '24px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                {/* Gemini Column */}
-                <div>
-                  <span className="modal-label">Gemini standard</span>
-                  {evalResults[selectedDetail.index] ? (
-                    <div className="response-full">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <span style={{ color: evalResults[selectedDetail.index]?.evaluation?.brand_present ? 'var(--accent)' : '#ef4444', fontWeight: 700, fontSize: '0.8rem' }}>
-                            {evalResults[selectedDetail.index]?.evaluation?.brand_present ? '✓ Mentioned' : '✗ Missing'}
-                          </span>
-                          {evalResults[selectedDetail.index]?.evaluation?.url_cited && (
-                            <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '0.8rem' }}>🔗 Linked</span>
-                          )}
-                        </div>
-                        <span style={{ color: 'var(--primary-light)', fontWeight: 700, fontSize: '0.8rem' }}>Rank: {evalResults[selectedDetail.index]?.evaluation?.recommendation_rank || 'N/A'}</span>
-                      </div>
-                      <div style={{ fontSize: '0.9rem', lineHeight: 1.6 }}>{evalResults[selectedDetail.index].response_text}</div>
+              {/* LAYER 1: Executive Summary & Leaderboard */}
+              <div className="summary-container">
+                {/* Gemini Summary */}
+                <div className="summary-card">
+                  <div className="stat-header">
+                    <span className="modal-label" style={{ marginBottom: 0 }}>Gemini Summary</span>
+                    {evalResults[selectedDetail.index] ? (
+                      <span className={`rank-badge ${evalResults[selectedDetail.index]?.evaluation?.recommendation_rank ? '' : 'missing'}`}>
+                        Rank: {evalResults[selectedDetail.index]?.evaluation?.recommendation_rank || 'N/A'}
+                      </span>
+                    ) : <span style={{ fontSize: '0.7rem', color: '#666' }}>Pending Check</span>}
+                  </div>
+
+                  {evalResults[selectedDetail.index] && (
+                    <div className="leaderboard-box">
+                      <span className="modal-label" style={{ fontSize: '0.65rem' }}>Market Leaders</span>
+                      {evalResults[selectedDetail.index]?.evaluation?.competitor_ranks?.length > 0 ? (
+                        evalResults[selectedDetail.index].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
+                          <div key={idx} className="leaderboard-item">
+                            <span className="rank-number">#{comp.rank || (idx + 1)}</span>
+                            <span className="leader-name">{comp.name}</span>
+                            {comp.url_cited && <span style={{ fontSize: '0.7rem' }}>🔗</span>}
+                          </div>
+                        ))
+                      ) : <p style={{ fontSize: '0.8rem', color: '#666' }}>No competitors cited.</p>}
                     </div>
-                  ) : (
-                    <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.index, false)} style={{ width: '100%', padding: '20px' }}>Run Gemini</button>
                   )}
                 </div>
 
-                {/* Google Search Column */}
-                <div>
-                  <span className="modal-label" style={{ color: 'var(--accent)' }}>Google AI Search</span>
-                  {googleEvalResults[selectedDetail.index] ? (
-                    <div className="response-full" style={{ borderLeft: '2px solid var(--accent)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <span style={{ color: googleEvalResults[selectedDetail.index]?.evaluation?.brand_present ? 'var(--accent)' : '#ef4444', fontWeight: 700, fontSize: '0.8rem' }}>
-                            {googleEvalResults[selectedDetail.index]?.evaluation?.brand_present ? '✓ Mentioned' : '✗ Missing'}
-                          </span>
-                          {googleEvalResults[selectedDetail.index]?.evaluation?.url_cited && (
-                            <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '0.8rem' }}>🔗 Linked</span>
-                          )}
-                        </div>
-                        <span style={{ color: 'var(--primary-light)', fontWeight: 700, fontSize: '0.8rem' }}>Rank: {googleEvalResults[selectedDetail.index]?.evaluation?.recommendation_rank || 'N/A'}</span>
-                      </div>
-                      <div style={{ fontSize: '0.9rem', lineHeight: 1.6 }}>{googleEvalResults[selectedDetail.index].response_text}</div>
+                {/* Google Summary */}
+                <div className="summary-card" style={{ borderColor: 'var(--accent)' }}>
+                  <div className="stat-header">
+                    <span className="modal-label" style={{ color: 'var(--accent)', marginBottom: 0 }}>Google AI Search Insight</span>
+                    {googleEvalResults[selectedDetail.index] ? (
+                      <span className={`rank-badge ${googleEvalResults[selectedDetail.index]?.evaluation?.recommendation_rank ? '' : 'missing'}`}>
+                        Rank: {googleEvalResults[selectedDetail.index]?.evaluation?.recommendation_rank || 'N/A'}
+                      </span>
+                    ) : <span style={{ fontSize: '0.7rem', color: '#666' }}>Pending Search</span>}
+                  </div>
+
+                  {googleEvalResults[selectedDetail.index] && (
+                    <div className="leaderboard-box">
+                      <span className="modal-label" style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>Search Dominance (Top 3)</span>
+                      {googleEvalResults[selectedDetail.index]?.evaluation?.competitor_ranks?.length > 0 ? (
+                        googleEvalResults[selectedDetail.index].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
+                          <div key={idx} className="leaderboard-item">
+                            <span className="rank-number" style={{ color: 'var(--accent)' }}>#{comp.rank || (idx + 1)}</span>
+                            <span className="leader-name">{comp.name}</span>
+                            {comp.url_cited && <span style={{ fontSize: '0.7rem' }}>🔗</span>}
+                          </div>
+                        ))
+                      ) : <p style={{ fontSize: '0.8rem', color: '#666' }}>No external leaders found.</p>}
                     </div>
-                  ) : (
-                    <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.index, true)} style={{ width: '100%', padding: '20px', background: 'var(--accent)' }}>Run Google Search</button>
                   )}
+
+                  {googleEvalResults[selectedDetail.index]?.sources?.length > 0 && (
+                    <div className="source-list" style={{ marginTop: 0, paddingTop: 16 }}>
+                      <span className="modal-label" style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>Primary Research Sources</span>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        {googleEvalResults[selectedDetail.index].sources.slice(0, 2).map((source, sIdx) => (
+                          <a key={sIdx} href={source.url} target="_blank" rel="noopener noreferrer" className="source-item" style={{ marginBottom: 0, padding: '8px 12px' }}>
+                            <div style={{ fontWeight: 600, fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{source.title}</div>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* LAYER 2: Transition Toggle */}
+              {(evalResults[selectedDetail.index] || googleEvalResults[selectedDetail.index]) ? (
+                <button className="detailed-toggle-btn" onClick={() => setShowDetails(!showDetails)}>
+                  {showDetails ? '▲ Hide Technical Reasoning' : '▼ Explore Detailed AI Reasoning & Full Output'}
+                </button>
+              ) : (
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.index, false)} style={{ flex: 1 }}>Run baseline Gemini</button>
+                  <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.index, true)} style={{ flex: 1, background: 'var(--accent)' }}>Run Google AI Search</button>
+                </div>
+              )}
+
+              {/* LAYER 3: Detailed Output */}
+              <div className={`response-details-container ${showDetails ? 'expanded' : 'collapsed'}`}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                  {/* Gemini Detailed */}
+                  <div>
+                    <span className="modal-label">Gemini standard Full Text</span>
+                    {evalResults[selectedDetail.index] && (
+                      <div className="response-full">
+                        <div style={{ fontSize: '0.9rem', lineHeight: 1.6 }}>{evalResults[selectedDetail.index].response_text}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Google Detailed */}
+                  <div>
+                    <span className="modal-label" style={{ color: 'var(--accent)' }}>Google AI Search Full Text</span>
+                    {googleEvalResults[selectedDetail.index] && (
+                      <div className="response-full" style={{ borderLeft: '2px solid var(--accent)' }}>
+                        <div style={{ fontSize: '0.9rem', lineHeight: 1.6 }}>{googleEvalResults[selectedDetail.index].response_text}</div>
+                        {googleEvalResults[selectedDetail.index].sources?.length > 2 && (
+                          <div className="source-list">
+                            <span className="modal-label" style={{ fontSize: '0.65rem' }}>All Cited Resources</span>
+                            {googleEvalResults[selectedDetail.index].sources.map((source, sIdx) => (
+                              <a key={sIdx} href={source.url} target="_blank" rel="noopener noreferrer" className="source-item">
+                                <div style={{ fontWeight: 600 }}>{source.title}</div>
+                                <div className="source-url">{source.url}</div>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      )}
+      )
+      }
 
       {/* Toast Notifications */}
       <div className="toast-container">
@@ -556,6 +638,6 @@ export default function Home() {
           </div>
         ))}
       </div>
-    </main>
+    </main >
   );
 }
