@@ -1,6 +1,9 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNav } from '@/context/NavContext';
+import DashboardView from '@/components/DashboardView';
+import ReferencesView from '@/components/ReferencesView';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -11,7 +14,10 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [evaluating, setEvaluating] = useState({}); // Tracking individual evaluations
   const [evaluatingGoogle, setEvaluatingGoogle] = useState({}); // Tracking Google search evaluations
+  const [evaluatingOSS, setEvaluatingOSS] = useState({}); // Tracking GPT-OSS evaluations
   const [evaluatingAll, setEvaluatingAll] = useState(false);
+  const [provider, setProvider] = useState('gemini'); // Current selected provider for standard checks
+  const [ossEvalResults, setOssEvalResults] = useState({}); // GPT-OSS results (OpenRouter)
   const [result, setResult] = useState(null);
   const [evalResults, setEvalResults] = useState({}); // Individual prompt results
   const [googleEvalResults, setGoogleEvalResults] = useState({}); // Google Grounded results
@@ -25,9 +31,15 @@ export default function Home() {
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [expandedReferences, setExpandedReferences] = useState({});
+  const { activeView, setActiveView } = useNav();
+
+  // If we get a result but haven't run the full audit yet, 
+  // we might want the user to click Dashboard to see the empty state 
+  // or auto-calculate based on what we have.
 
   const addToast = (message, type = 'info') => {
-    const id = Date.now();
+    const id = Date.now() + Math.random();
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
@@ -39,7 +51,8 @@ export default function Home() {
 
     const newPrompt = {
       prompt_text: manualPromptText,
-      intent_category: "Manual Custom"
+      intent_category: "Manual Custom",
+      id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // Unique ID
     };
 
     setResult(prev => ({
@@ -86,8 +99,22 @@ export default function Home() {
       }
 
       const data = await response.json();
-      setResult(data);
+
+      // Assign unique IDs to all prompts from backend
+      const promptsWithIds = data.prompts.map((p, idx) => ({
+        ...p,
+        id: `generated-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`
+      }));
+
+      setResult({
+        ...data,
+        prompts: promptsWithIds
+      });
       addToast("✅ Analysis complete! Generated " + data.prompts.length + " test prompts.", "success");
+
+      // Auto-trigger full comparative audit for ALL prompts
+      addToast("🚀 Starting automatic 3-model comparison (Batch Mode)...", "info");
+      handleBatchEvaluate(promptsWithIds, data.company_profile);
     } catch (err) {
       setError(err.message);
       addToast("❌ Analysis failed: " + err.message, "error");
@@ -96,13 +123,81 @@ export default function Home() {
     }
   };
 
-  const handleEvaluatePrompt = async (prompt, index, useGoogleSearch = false) => {
-    if (useGoogleSearch) {
-      setEvaluatingGoogle(prev => ({ ...prev, [index]: true }));
+  const handleBatchEvaluate = async (prompts, companyProfile) => {
+    // Helper to run a batch for a specific provider
+    const runBatch = async (provider, checkType) => {
+      const promptIds = prompts.map(p => p.id);
+
+      // Update loading states
+      const updateLoading = (isLoading) => {
+        const updates = {};
+        promptIds.forEach(id => updates[id] = isLoading);
+        if (checkType === 'google') setEvaluatingGoogle(prev => ({ ...prev, ...updates }));
+        else if (checkType === 'oss') setEvaluatingOSS(prev => ({ ...prev, ...updates }));
+        else setEvaluating(prev => ({ ...prev, ...updates }));
+      };
+
+      updateLoading(true);
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/evaluate-all`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            company_profile: companyProfile,
+            prompts: prompts,
+            use_google_search: checkType === 'google',
+            provider: checkType === 'oss' ? 'openrouter' : provider
+          }),
+        });
+
+        if (!response.ok) throw new Error(`Batch ${checkType} failed`);
+        const report = await response.json();
+
+        // Map results back to prompt IDs based on index
+        const newResults = {};
+        report.model_results.forEach((res, idx) => {
+          if (prompts[idx]) {
+            newResults[prompts[idx].id] = res;
+          }
+        });
+
+        if (checkType === 'google') setGoogleEvalResults(prev => ({ ...prev, ...newResults }));
+        else if (checkType === 'oss') setOssEvalResults(prev => ({ ...prev, ...newResults }));
+        else setEvalResults(prev => ({ ...prev, ...newResults }));
+
+      } catch (err) {
+        console.error(err);
+        addToast(`Batch evaluation failed for ${checkType}`, "error");
+      } finally {
+        updateLoading(false);
+      }
+    };
+
+    // Trigger all 3 batches in parallel
+    // 1. Gemini Standard
+    // 2. OpenRouter (Claude/OSS)
+    // 3. Google Search Grounding
+    addToast("🚀 Dispatching parallel batch requests...", "info");
+    Promise.allSettled([
+      runBatch('gemini', 'standard'),
+      runBatch('openrouter', 'oss'),
+      runBatch('gemini', 'google')
+    ]);
+  };
+
+  const handleEvaluatePrompt = async (prompt, promptId, checkType = 'standard') => {
+    // checkType can be 'standard', 'google', or 'oss'
+
+    if (checkType === 'google') {
+      setEvaluatingGoogle(prev => ({ ...prev, [promptId]: true }));
       addToast("Launching Google AI Search Check...", "success");
+    } else if (checkType === 'oss') {
+      setEvaluatingOSS(prev => ({ ...prev, [promptId]: true }));
+      addToast("Sending prompt to Claude 3.5 Sonnet...", "info");
     } else {
-      setEvaluating(prev => ({ ...prev, [index]: true }));
-      addToast("Sending prompt to Gemini...", "info");
+      setEvaluating(prev => ({ ...prev, [promptId]: true }));
+      addToast(`Sending prompt to ${provider === 'gemini' ? 'Gemini' : 'Cerebras'}...`, "info");
     }
 
     try {
@@ -112,7 +207,8 @@ export default function Home() {
         body: JSON.stringify({
           company_profile: result.company_profile,
           prompt: prompt,
-          use_google_search: useGoogleSearch
+          use_google_search: checkType === 'google',
+          provider: checkType === 'oss' ? 'openrouter' : provider
         }),
       });
 
@@ -129,21 +225,38 @@ export default function Home() {
 
       const data = await response.json();
 
-      if (useGoogleSearch) {
-        setGoogleEvalResults(prev => ({ ...prev, [index]: data }));
+      if (checkType === 'google') {
+        setGoogleEvalResults(prev => ({ ...prev, [promptId]: data }));
+      } else if (checkType === 'oss') {
+        setOssEvalResults(prev => ({ ...prev, [promptId]: data }));
       } else {
-        setEvalResults(prev => ({ ...prev, [index]: data }));
+        setEvalResults(prev => ({ ...prev, [promptId]: data }));
       }
     } catch (err) {
       console.error('Evaluation error:', err);
-      addToast(`${useGoogleSearch ? 'Google Search' : 'Gemini'} check failed: ${err.message}`, 'error');
+      let errorLabel = 'Check';
+      if (checkType === 'google') errorLabel = 'Google Search';
+      else if (checkType === 'oss') errorLabel = 'GPT-OSS';
+      else errorLabel = provider;
+
+      addToast(`${errorLabel} check failed: ${err.message}`, 'error');
     } finally {
-      if (useGoogleSearch) {
-        setEvaluatingGoogle(prev => ({ ...prev, [index]: false }));
+      if (checkType === 'google') {
+        setEvaluatingGoogle(prev => ({ ...prev, [promptId]: false }));
+      } else if (checkType === 'oss') {
+        setEvaluatingOSS(prev => ({ ...prev, [promptId]: false }));
       } else {
-        setEvaluating(prev => ({ ...prev, [index]: false }));
+        setEvaluating(prev => ({ ...prev, [promptId]: false }));
       }
     }
+  };
+
+  const handleEvaluateAllModels = async (prompt, promptId) => {
+    Promise.allSettled([
+      handleEvaluatePrompt(prompt, promptId, 'standard'),
+      handleEvaluatePrompt(prompt, promptId, 'oss'),
+      handleEvaluatePrompt(prompt, promptId, 'google')
+    ]);
   };
 
   const handleRefreshPrompts = async () => {
@@ -159,7 +272,14 @@ export default function Home() {
       if (!response.ok) throw new Error("Failed to refresh prompts");
 
       const data = await response.json();
-      setResult(prev => ({ ...prev, prompts: data }));
+
+      // Assign unique IDs to refreshed prompts
+      const promptsWithIds = data.map((p, idx) => ({
+        ...p,
+        id: `refreshed-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`
+      }));
+
+      setResult(prev => ({ ...prev, prompts: promptsWithIds }));
       setEvalResults({});
       setGoogleEvalResults({});
       addToast("✅ Prompts refreshed!", "success");
@@ -184,9 +304,16 @@ export default function Home() {
       if (!response.ok) throw new Error("Failed to import prompts");
 
       const data = await response.json();
+
+      // Assign unique IDs to bulk imported prompts
+      const promptsWithIds = data.map((p, idx) => ({
+        ...p,
+        id: `bulk-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`
+      }));
+
       setResult(prev => ({
         ...prev,
-        prompts: [...data, ...prev.prompts]
+        prompts: [...promptsWithIds, ...prev.prompts]
       }));
       setBulkPromptText('');
       setShowBulkImport(false);
@@ -205,7 +332,8 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           company_profile: result.company_profile,
-          prompts: result.prompts
+          prompts: result.prompts,
+          provider: 'gemini'
         }),
       });
 
@@ -239,6 +367,27 @@ export default function Home() {
     }
   };
 
+  if (activeView === 'references') {
+    return (
+      <ReferencesView
+        prompts={result?.prompts || []}
+        evalResults={evalResults}
+        googleEvalResults={googleEvalResults}
+        ossEvalResults={ossEvalResults}
+      />
+    );
+  }
+
+  if (activeView === 'dashboard') {
+    return (
+      <DashboardView
+        report={report}
+        companyProfile={result?.company_profile}
+        setActiveView={setActiveView}
+      />
+    );
+  }
+
   return (
     <main>
       <img src="/ethosh-logo.png" alt="Ethosh Logo" className="top-right-logo" />
@@ -270,19 +419,33 @@ export default function Home() {
           />
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '200px' }}>
-          <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Target Region</label>
-          <select
-            value={region}
-            onChange={(e) => setRegion(e.target.value)}
-          >
-            <option value="Global">Global</option>
-            <option value="North America">North America</option>
-            <option value="Europe">Europe</option>
-            <option value="Asia">Asia</option>
-            <option value="India">India</option>
-            <option value="Middle East">Middle East</option>
-          </select>
+        <div style={{ display: 'flex', gap: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+            <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Target Region</label>
+            <select
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+            >
+              <option value="Global">Global</option>
+              <option value="North America">North America</option>
+              <option value="Europe">Europe</option>
+              <option value="Asia">Asia</option>
+              <option value="India">India</option>
+              <option value="Middle East">Middle East</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+            <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Prompt Generation Model</label>
+            <select
+              value={provider}
+              onChange={(e) => setProvider(e.target.value)}
+            >
+              <option value="gemini">Gemini</option>
+              {/* Future: Add more generation models here */}
+            </select>
+            <p style={{ fontSize: '0.65rem', color: '#666', marginTop: '4px' }}>Model used to create the test questions. Audit always checks ALL 3.</p>
+          </div>
         </div>
 
         <button onClick={handleAnalyze} disabled={loading} style={{ marginTop: '12px' }}>
@@ -316,37 +479,28 @@ export default function Home() {
           </div>
 
           {report && (
-            <div className="report-card">
-              <h2 style={{ fontSize: '1.5rem', color: 'var(--accent)', marginBottom: '24px' }}>
-                Overall Visibility Score: {report.overall_score}/100
+            <div className="report-card" style={{ textAlign: 'center', padding: '32px' }}>
+              <h2 style={{ fontSize: '1.5rem', color: 'var(--accent)', marginBottom: '16px' }}>
+                ✅ Full Visibility Audit Complete!
               </h2>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                <div>
-                  <h4 style={{ color: '#a1a1aa', marginBottom: '12px' }}>Key Findings</h4>
-                  <ul style={{ paddingLeft: '20px' }}>
-                    {(report.key_findings || []).map((f, i) => <li key={i} style={{ marginBottom: '8px' }}>{f}</li>)}
-                  </ul>
-                </div>
-                <div>
-                  <h4 style={{ color: '#a1a1aa', marginBottom: '12px' }}>Optimizer Tips</h4>
-                  <ul style={{ paddingLeft: '20px' }}>
-                    {(report.optimizer_tips || []).map((t, i) => <li key={i} style={{ marginBottom: '8px', color: 'var(--accent)' }}>{t}</li>)}
-                  </ul>
-                </div>
-              </div>
-
-              {report.competitor_summary && report.competitor_summary.length > 0 && (
-                <div style={{ marginTop: '32px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '24px' }}>
-                  <h4 style={{ color: '#a1a1aa', marginBottom: '16px' }}>Competitor Visibility Insights</h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
-                    {report.competitor_summary.map((s, i) => (
-                      <div key={i} style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', fontSize: '0.85rem' }}>
-                        {s}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <p style={{ color: '#a1a1aa', marginBottom: '24px', fontSize: '1rem' }}>
+                Your comprehensive report is ready with a score of <span style={{ color: 'var(--accent)', fontWeight: 'bold' }}>{report.overall_score}/100</span>
+              </p>
+              <button
+                onClick={() => setActiveView('dashboard')}
+                style={{
+                  background: 'var(--primary)',
+                  border: 'none',
+                  padding: '12px 32px',
+                  fontSize: '1rem',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                  color: 'white',
+                  fontWeight: '600'
+                }}
+              >
+                📊 View Full Report in Dashboard
+              </button>
             </div>
           )}
 
@@ -409,11 +563,11 @@ export default function Home() {
           <div className="prompt-grid">
             {result.prompts.map((p, index) => (
               <div
-                key={index}
+                key={p.id || index}
                 className="prompt-card"
-                onMouseEnter={() => setHoveredDetail({ ...p, index })}
+                onMouseEnter={() => setHoveredDetail({ ...p, promptId: p.id })}
                 onMouseLeave={() => setHoveredDetail(null)}
-                onClick={() => setSelectedDetail({ ...p, index })}
+                onClick={() => setSelectedDetail({ ...p, promptId: p.id })}
               >
                 <div className="view-hint">Hover to preview | Click for persistent view</div>
                 <span className="category-label">{p.intent_category}</span>
@@ -423,210 +577,346 @@ export default function Home() {
                   style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.05)' }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <button
+                    onClick={() => handleEvaluateAllModels(p, p.id)}
+                    className="secondary-btn"
+                    style={{ width: '100%', marginBottom: '12px', fontSize: '0.8rem', padding: '12px', background: 'var(--primary)', border: 'none' }}
+                    disabled={evaluating[p.id] || evaluatingOSS[p.id] || evaluatingGoogle[p.id]}
+                  >
+                    🚀 Run Comparative Audit
+                  </button>
+
+                  <div style={{ display: 'flex', gap: '8px' }}>
                     <button
-                      onClick={() => handleEvaluatePrompt(p, index, false)}
-                      disabled={evaluating[index]}
-                      style={{ flex: 1, padding: '8px', fontSize: '0.75rem', background: evalResults[index] ? 'rgba(44, 51, 149, 0.4)' : 'var(--primary)' }}
+                      onClick={() => handleEvaluatePrompt(p, p.id, 'google')}
+                      disabled={evaluatingGoogle[p.id]}
+                      style={{ flex: 1, padding: '8px', fontSize: '0.7rem', background: googleEvalResults[p.id] ? 'rgba(34, 197, 94, 0.4)' : 'var(--accent)', color: 'white' }}
                     >
-                      {evaluating[index] ? '...' : (evalResults[index] ? 'Gemini ✓' : 'Gemini Check')}
+                      {evaluatingGoogle[p.id] ? '...' : (googleEvalResults[p.id] ? 'Google Search ✓' : 'Google Search Check')}
                     </button>
-                    <button
-                      onClick={() => handleEvaluatePrompt(p, index, true)}
-                      disabled={evaluatingGoogle[index]}
-                      style={{ flex: 1, padding: '8px', fontSize: '0.75rem', background: googleEvalResults[index] ? 'rgba(34, 197, 94, 0.4)' : 'var(--accent)', color: 'white' }}
-                    >
-                      {evaluatingGoogle[index] ? '...' : (googleEvalResults[index] ? 'Google ✓' : 'Google Search')}
-                    </button>
+                    {/* Minimalist individual rerun buttons */}
+                    <button onClick={() => handleEvaluatePrompt(p, p.id, 'standard')} style={{ padding: '8px', width: '40px', background: 'rgba(255,255,255,0.05)', fontSize: '0.7rem' }}>G</button>
+                    <button onClick={() => handleEvaluatePrompt(p, p.id, 'oss')} style={{ padding: '8px', width: '40px', background: 'rgba(255,255,255,0.05)', fontSize: '0.7rem' }}>O</button>
                   </div>
 
-                  {(evalResults[index] || googleEvalResults[index]) && (
-                    <div className="eval-result-box" style={{ animation: 'fadeIn 0.3s ease', padding: '12px', fontSize: '0.8rem', background: 'rgba(0,0,0,0.2)', borderRadius: '12px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ color: '#a1a1aa', fontSize: '0.7rem' }}>Gemini Rank:</span>
-                          <span className={`rank-badge ${evalResults[index]?.evaluation?.recommendation_rank ? '' : 'missing'}`} style={{ fontSize: '0.8rem', padding: '2px 8px' }}>
-                            {evalResults[index]?.evaluation?.recommendation_rank || 'N/A'}
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ color: '#a1a1aa', fontSize: '0.7rem' }}>Google Rank:</span>
-                          <span className={`rank-badge ${googleEvalResults[index]?.evaluation?.recommendation_rank ? '' : 'missing'}`} style={{ fontSize: '0.8rem', padding: '2px 8px' }}>
-                            {googleEvalResults[index]?.evaluation?.recommendation_rank || 'N/A'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+                  {/* References Section */}
+                  {(() => {
+                    const allSources = [
+                      ...(evalResults[p.id]?.sources || []).map(s => ({ ...s, provider: 'Gemini' })),
+                      ...(ossEvalResults[p.id]?.sources || []).map(s => ({ ...s, provider: 'Claude' })),
+                      ...(googleEvalResults[p.id]?.sources || []).map(s => ({ ...s, provider: 'Google AI' }))
+                    ];
 
-      {hoveredDetail && !selectedDetail && (
-        <div className="hover-detail-panel" style={{ animation: 'slideRight 0.4s cubic-bezier(0.4, 0, 0.2, 1)' }}>
-          <div className="modal-section">
-            <span className="modal-label">Quick Preview: {hoveredDetail.intent_category}</span>
-            <p className="modal-text" style={{ fontStyle: 'italic', fontSize: '0.9rem', color: '#a1a1aa' }}>"{hoveredDetail.prompt_text}"</p>
-          </div>
+                    if (allSources.length === 0) return null;
 
-          <div className="modal-section" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '20px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div>
-                <span className="modal-label" style={{ color: 'var(--primary-light)' }}>Gemini AI (Standard)</span>
-                {evalResults[hoveredDetail.index] ? (
-                  <div className="response-full" style={{ padding: '12px', fontSize: '0.8rem', maxHeight: '200px', overflowY: 'auto' }}>
-                    {evalResults[hoveredDetail.index].response_text}
-                  </div>
-                ) : <p style={{ fontSize: '0.75rem', color: '#666' }}>Not analyzed</p>}
-              </div>
-              <div>
-                <span className="modal-label" style={{ color: 'var(--accent)' }}>Google AI Search (Grounded)</span>
-                {googleEvalResults[hoveredDetail.index] ? (
-                  <div className="response-full" style={{ padding: '12px', fontSize: '0.8rem', borderLeft: '2px solid var(--accent)', maxHeight: '200px', overflowY: 'auto' }}>
-                    {googleEvalResults[hoveredDetail.index].response_text}
-                  </div>
-                ) : <p style={{ fontSize: '0.75rem', color: '#666' }}>Not analyzed</p>}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+                    return (
+                      <div className="references-section" style={{ marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px' }} onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedReferences(prev => ({ ...prev, [p.id]: !prev[p.id] }));
+                          }}
+                          className="secondary-btn"
+                          style={{
+                            width: '100%',
+                            fontSize: '0.75rem',
+                            padding: '8px',
+                            background: 'rgba(255,255,255,0.02)',
+                            display: 'flex',
+                            justifyContent: 'space-between'
+                          }}
+                        >
+                          <span>📚 References / Visited Sites</span>
+                          <span>{allSources.length}</span>
+                        </button>
 
-      {selectedDetail && (
-        <div className="modal-backdrop" onClick={() => { setSelectedDetail(null); setShowDetails(false); }}>
-          <div className="modal-content" style={{ maxWidth: '950px' }} onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn" onClick={() => { setSelectedDetail(null); setShowDetails(false); }}>&times;</button>
-
-            <div className="modal-section">
-              <span className="modal-label">Detailed Analysis: {selectedDetail.intent_category}</span>
-              <p className="modal-text" style={{ fontStyle: 'italic', fontSize: '1.2rem' }}>"{selectedDetail.prompt_text}"</p>
-            </div>
-
-            <div className="modal-section" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '24px' }}>
-              {/* LAYER 1: Executive Summary & Leaderboard */}
-              <div className="summary-container">
-                {/* Gemini Summary */}
-                <div className="summary-card">
-                  <div className="stat-header">
-                    <span className="modal-label" style={{ marginBottom: 0 }}>Gemini Summary</span>
-                    {evalResults[selectedDetail.index] ? (
-                      <span className={`rank-badge ${evalResults[selectedDetail.index]?.evaluation?.recommendation_rank ? '' : 'missing'}`}>
-                        Rank: {evalResults[selectedDetail.index]?.evaluation?.recommendation_rank || 'N/A'}
-                      </span>
-                    ) : <span style={{ fontSize: '0.7rem', color: '#666' }}>Pending Check</span>}
-                  </div>
-
-                  {evalResults[selectedDetail.index] && (
-                    <div className="leaderboard-box">
-                      <span className="modal-label" style={{ fontSize: '0.65rem' }}>Market Leaders</span>
-                      {evalResults[selectedDetail.index]?.evaluation?.competitor_ranks?.length > 0 ? (
-                        evalResults[selectedDetail.index].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
-                          <div key={idx} className="leaderboard-item">
-                            <span className="rank-number">#{comp.rank || (idx + 1)}</span>
-                            <span className="leader-name">{comp.name}</span>
-                            {comp.url_cited && <span style={{ fontSize: '0.7rem' }}>🔗</span>}
-                          </div>
-                        ))
-                      ) : <p style={{ fontSize: '0.8rem', color: '#666' }}>No competitors cited.</p>}
-                    </div>
-                  )}
-                </div>
-
-                {/* Google Summary */}
-                <div className="summary-card" style={{ borderColor: 'var(--accent)' }}>
-                  <div className="stat-header">
-                    <span className="modal-label" style={{ color: 'var(--accent)', marginBottom: 0 }}>Google AI Search Insight</span>
-                    {googleEvalResults[selectedDetail.index] ? (
-                      <span className={`rank-badge ${googleEvalResults[selectedDetail.index]?.evaluation?.recommendation_rank ? '' : 'missing'}`}>
-                        Rank: {googleEvalResults[selectedDetail.index]?.evaluation?.recommendation_rank || 'N/A'}
-                      </span>
-                    ) : <span style={{ fontSize: '0.7rem', color: '#666' }}>Pending Search</span>}
-                  </div>
-
-                  {googleEvalResults[selectedDetail.index] && (
-                    <div className="leaderboard-box">
-                      <span className="modal-label" style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>Search Dominance (Top 3)</span>
-                      {googleEvalResults[selectedDetail.index]?.evaluation?.competitor_ranks?.length > 0 ? (
-                        googleEvalResults[selectedDetail.index].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
-                          <div key={idx} className="leaderboard-item">
-                            <span className="rank-number" style={{ color: 'var(--accent)' }}>#{comp.rank || (idx + 1)}</span>
-                            <span className="leader-name">{comp.name}</span>
-                            {comp.url_cited && <span style={{ fontSize: '0.7rem' }}>🔗</span>}
-                          </div>
-                        ))
-                      ) : <p style={{ fontSize: '0.8rem', color: '#666' }}>No external leaders found.</p>}
-                    </div>
-                  )}
-
-                  {googleEvalResults[selectedDetail.index]?.sources?.length > 0 && (
-                    <div className="source-list" style={{ marginTop: 0, paddingTop: 16 }}>
-                      <span className="modal-label" style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>Primary Research Sources</span>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                        {googleEvalResults[selectedDetail.index].sources.slice(0, 2).map((source, sIdx) => (
-                          <a key={sIdx} href={source.url} target="_blank" rel="noopener noreferrer" className="source-item" style={{ marginBottom: 0, padding: '8px 12px' }}>
-                            <div style={{ fontWeight: 600, fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{source.title}</div>
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* LAYER 2: Transition Toggle */}
-              {(evalResults[selectedDetail.index] || googleEvalResults[selectedDetail.index]) ? (
-                <button className="detailed-toggle-btn" onClick={() => setShowDetails(!showDetails)}>
-                  {showDetails ? '▲ Hide Technical Reasoning' : '▼ Explore Detailed AI Reasoning & Full Output'}
-                </button>
-              ) : (
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.index, false)} style={{ flex: 1 }}>Run baseline Gemini</button>
-                  <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.index, true)} style={{ flex: 1, background: 'var(--accent)' }}>Run Google AI Search</button>
-                </div>
-              )}
-
-              {/* LAYER 3: Detailed Output */}
-              <div className={`response-details-container ${showDetails ? 'expanded' : 'collapsed'}`}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                  {/* Gemini Detailed */}
-                  <div>
-                    <span className="modal-label">Gemini standard Full Text</span>
-                    {evalResults[selectedDetail.index] && (
-                      <div className="response-full">
-                        <div style={{ fontSize: '0.9rem', lineHeight: 1.6 }}>{evalResults[selectedDetail.index].response_text}</div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Google Detailed */}
-                  <div>
-                    <span className="modal-label" style={{ color: 'var(--accent)' }}>Google AI Search Full Text</span>
-                    {googleEvalResults[selectedDetail.index] && (
-                      <div className="response-full" style={{ borderLeft: '2px solid var(--accent)' }}>
-                        <div style={{ fontSize: '0.9rem', lineHeight: 1.6 }}>{googleEvalResults[selectedDetail.index].response_text}</div>
-                        {googleEvalResults[selectedDetail.index].sources?.length > 2 && (
-                          <div className="source-list">
-                            <span className="modal-label" style={{ fontSize: '0.65rem' }}>All Cited Resources</span>
-                            {googleEvalResults[selectedDetail.index].sources.map((source, sIdx) => (
-                              <a key={sIdx} href={source.url} target="_blank" rel="noopener noreferrer" className="source-item">
-                                <div style={{ fontWeight: 600 }}>{source.title}</div>
-                                <div className="source-url">{source.url}</div>
+                        {expandedReferences[p.id] && (
+                          <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
+                            {allSources.map((source, idx) => (
+                              <a
+                                key={idx}
+                                href={source.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="source-item"
+                                style={{ fontSize: '0.7rem', padding: '8px' }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                  <span style={{ fontWeight: 600, color: source.provider === 'Claude' ? '#ff6b00' : source.provider === 'Google AI' ? 'var(--accent)' : 'var(--primary-light)' }}>
+                                    {source.provider}
+                                  </span>
+                                </div>
+                                <div style={{ color: '#e2e8f0' }}>{source.title || 'Cited Resource'}</div>
+                                <span className="source-url" style={{ fontSize: '0.65rem' }}>{source.url}</span>
                               </a>
                             ))}
                           </div>
                         )}
                       </div>
+                    );
+                  })()}
+                </div>
+
+                {(evalResults[p.id] || googleEvalResults[p.id] || ossEvalResults[p.id]) && (
+                  <div className="eval-result-box" style={{ animation: 'fadeIn 0.3s ease', padding: '12px', fontSize: '0.8rem', background: 'rgba(0,0,0,0.2)', borderRadius: '12px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ color: '#a1a1aa', fontSize: '0.7rem' }}>Gemini Rank:</span>
+                        <span className={`rank-badge ${evalResults[p.id]?.evaluation?.recommendation_rank ? '' : 'missing'}`} style={{ fontSize: '0.8rem', padding: '2px 8px' }}>
+                          {evalResults[p.id]?.evaluation?.recommendation_rank || 'N/A'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ color: '#a1a1aa', fontSize: '0.7rem' }}>Claude Rank:</span>
+                        <span className={`rank-badge ${ossEvalResults[p.id]?.evaluation?.recommendation_rank ? '' : 'missing'}`} style={{ fontSize: '0.8rem', padding: '2px 8px', background: 'rgba(255, 107, 0, 0.2)', color: '#ff6b00' }}>
+                          {ossEvalResults[p.id]?.evaluation?.recommendation_rank || 'N/A'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ color: '#a1a1aa', fontSize: '0.7rem' }}>Google Rank:</span>
+                        <span className={`rank-badge ${googleEvalResults[p.id]?.evaluation?.recommendation_rank ? '' : 'missing'}`} style={{ fontSize: '0.8rem', padding: '2px 8px' }}>
+                          {googleEvalResults[p.id]?.evaluation?.recommendation_rank || 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )
+      }
+
+      {
+        hoveredDetail && !selectedDetail && (
+          <div className="hover-detail-panel" style={{ animation: 'slideRight 0.4s cubic-bezier(0.4, 0, 0.2, 1)' }}>
+            <div className="modal-section">
+              <span className="modal-label">Quick Preview: {hoveredDetail.intent_category}</span>
+              <p className="modal-text" style={{ fontStyle: 'italic', fontSize: '0.9rem', color: '#a1a1aa' }}>"{hoveredDetail.prompt_text}"</p>
+            </div>
+
+            <div className="modal-section" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '20px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div>
+                  <span className="modal-label" style={{ color: 'var(--primary-light)' }}>Gemini</span>
+                  {evalResults[hoveredDetail.promptId] ? (
+                    <div className="response-full" style={{ padding: '12px', fontSize: '0.8rem', maxHeight: '150px', overflowY: 'auto' }}>
+                      {evalResults[hoveredDetail.promptId].response_text}
+                    </div>
+                  ) : <p style={{ fontSize: '0.75rem', color: '#666' }}>Not analyzed</p>}
+                </div>
+                <div>
+                  <span className="modal-label" style={{ color: '#ff6b00' }}>Claude</span>
+                  {ossEvalResults[hoveredDetail.promptId] ? (
+                    <div className="response-full" style={{ padding: '12px', fontSize: '0.8rem', borderLeft: '2px solid #ff6b00', maxHeight: '150px', overflowY: 'auto' }}>
+                      {ossEvalResults[hoveredDetail.promptId].response_text}
+                    </div>
+                  ) : <p style={{ fontSize: '0.75rem', color: '#666' }}>Not analyzed</p>}
+                </div>
+                <div>
+                  <span className="modal-label" style={{ color: 'var(--accent)' }}>Google AI Search</span>
+                  {googleEvalResults[hoveredDetail.promptId] ? (
+                    <div className="response-full" style={{ padding: '12px', fontSize: '0.8rem', borderLeft: '2px solid var(--accent)', maxHeight: '150px', overflowY: 'auto' }}>
+                      {googleEvalResults[hoveredDetail.promptId].response_text}
+                    </div>
+                  ) : <p style={{ fontSize: '0.75rem', color: '#666' }}>Not analyzed</p>}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {
+        selectedDetail && (
+          <div className="modal-backdrop" onClick={() => { setSelectedDetail(null); setShowDetails(false); }}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="close-btn" onClick={() => { setSelectedDetail(null); setShowDetails(false); }}>&times;</button>
+
+              <div className="modal-section">
+                <span className="modal-label">Detailed Analysis: {selectedDetail.intent_category}</span>
+                <p className="modal-text" style={{ fontStyle: 'italic', fontSize: '1.2rem' }}>"{selectedDetail.prompt_text}"</p>
+              </div>
+
+              <div className="modal-section" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '24px' }}>
+                {/* LAYER 1: Executive Summary & Leaderboard */}
+                <div className="summary-container" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '20px' }}>
+                  {/* Gemini Summary */}
+                  <div className="summary-card">
+                    <div className="stat-header">
+                      <span className="modal-label" style={{ marginBottom: 0 }}>Gemini Summary</span>
+                      {evalResults[selectedDetail.promptId] ? (
+                        <span className={`rank-badge ${evalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank ? '' : 'missing'}`}>
+                          Rank: {evalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank || 'N/A'}
+                        </span>
+                      ) : <span style={{ fontSize: '0.7rem', color: '#666' }}>Pending Check</span>}
+                    </div>
+
+                    {evalResults[selectedDetail.promptId] && (
+                      <>
+                        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', fontSize: '0.8rem', color: '#a1a1aa' }}>
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <span className={`sentiment-dot sentiment-${evalResults[selectedDetail.promptId].evaluation.sentiment}`} />
+                            {evalResults[selectedDetail.promptId].evaluation.sentiment}
+                          </div>
+                          <div>Accuracy: {Math.round(evalResults[selectedDetail.promptId].evaluation.accuracy_score * 100)}%</div>
+                        </div>
+                        <div className="leaderboard-box">
+                          <span className="modal-label" style={{ fontSize: '0.65rem' }}>Market Leaders</span>
+                          {evalResults[selectedDetail.promptId]?.evaluation?.competitor_ranks?.length > 0 ? (
+                            evalResults[selectedDetail.promptId].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
+                              <div key={idx} className="leaderboard-item">
+                                <span className="rank-number">#{comp.rank || (idx + 1)}</span>
+                                <span className="leader-name">{comp.name}</span>
+                                {comp.url_cited && <span style={{ fontSize: '0.7rem' }}>🔗</span>}
+                              </div>
+                            ))
+                          ) : <p style={{ fontSize: '0.8rem', color: '#666' }}>No competitors cited.</p>}
+                        </div>
+                      </>
                     )}
+                  </div>
+
+                  {/* GPT-OSS Summary */}
+                  <div className="summary-card" style={{ borderColor: '#ff6b00' }}>
+                    <div className="stat-header">
+                      <span className="modal-label" style={{ color: '#ff6b00', marginBottom: 0 }}>Claude Summary</span>
+                      {ossEvalResults[selectedDetail.promptId] ? (
+                        <span className={`rank-badge`} style={{ background: 'rgba(255, 107, 0, 0.2)', color: '#ff6b00' }}>
+                          Rank: {ossEvalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank || 'N/A'}
+                        </span>
+                      ) : <span style={{ fontSize: '0.7rem', color: '#666' }}>Pending Check</span>}
+                    </div>
+
+                    {ossEvalResults[selectedDetail.promptId] && (
+                      <>
+                        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', fontSize: '0.8rem', color: '#a1a1aa' }}>
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <span className={`sentiment-dot sentiment-${ossEvalResults[selectedDetail.promptId].evaluation.sentiment}`} />
+                            {ossEvalResults[selectedDetail.promptId].evaluation.sentiment}
+                          </div>
+                          <div>Accuracy: {Math.round(ossEvalResults[selectedDetail.promptId].evaluation.accuracy_score * 100)}%</div>
+                        </div>
+                        <div className="leaderboard-box">
+                          <span className="modal-label" style={{ fontSize: '0.65rem', color: '#ff6b00' }}>Market Leaders</span>
+                          {ossEvalResults[selectedDetail.promptId]?.evaluation?.competitor_ranks?.length > 0 ? (
+                            ossEvalResults[selectedDetail.promptId].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
+                              <div key={idx} className="leaderboard-item">
+                                <span className="rank-number" style={{ color: '#ff6b00' }}>#{comp.rank || (idx + 1)}</span>
+                                <span className="leader-name">{comp.name}</span>
+                                {comp.url_cited && <span style={{ fontSize: '0.7rem' }}>🔗</span>}
+                              </div>
+                            ))
+                          ) : <p style={{ fontSize: '0.8rem', color: '#666' }}>No competitors cited.</p>}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Google Summary */}
+                  <div className="summary-card" style={{ borderColor: 'var(--accent)' }}>
+                    <div className="stat-header">
+                      <span className="modal-label" style={{ color: 'var(--accent)', marginBottom: 0 }}>Google AI Search</span>
+                      {googleEvalResults[selectedDetail.promptId] ? (
+                        <span className={`rank-badge ${googleEvalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank ? '' : 'missing'}`}>
+                          Rank: {googleEvalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank || 'N/A'}
+                        </span>
+                      ) : <span style={{ fontSize: '0.7rem', color: '#666' }}>Pending Search</span>}
+                    </div>
+
+                    {googleEvalResults[selectedDetail.promptId] && (
+                      <>
+                        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', fontSize: '0.8rem', color: '#a1a1aa' }}>
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <span className={`sentiment-dot sentiment-${googleEvalResults[selectedDetail.promptId].evaluation.sentiment}`} />
+                            {googleEvalResults[selectedDetail.promptId].evaluation.sentiment}
+                          </div>
+                          <div>Accuracy: {Math.round(googleEvalResults[selectedDetail.promptId].evaluation.accuracy_score * 100)}%</div>
+                        </div>
+                        <div className="leaderboard-box">
+                          <span className="modal-label" style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>Search Dominance</span>
+                          {googleEvalResults[selectedDetail.promptId]?.evaluation?.competitor_ranks?.length > 0 ? (
+                            googleEvalResults[selectedDetail.promptId].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
+                              <div key={idx} className="leaderboard-item">
+                                <span className="rank-number" style={{ color: 'var(--accent)' }}>#{comp.rank || (idx + 1)}</span>
+                                <span className="leader-name">{comp.name}</span>
+                                {comp.url_cited && <span style={{ fontSize: '0.7rem' }}>🔗</span>}
+                              </div>
+                            ))
+                          ) : <p style={{ fontSize: '0.8rem', color: '#666' }}>No external leaders found.</p>}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* LAYER 2: Transition Toggle */}
+                {(evalResults[selectedDetail.promptId] || googleEvalResults[selectedDetail.promptId] || ossEvalResults[selectedDetail.promptId]) ? (
+                  <button className="detailed-toggle-btn" onClick={() => setShowDetails(!showDetails)}>
+                    {showDetails ? '▲ Hide Technical Reasoning' : '▼ Explore Detailed AI Reasoning & Full Output'}
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.promptId, 'standard')} style={{ flex: 1 }}>Run Gemini</button>
+                    <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.promptId, 'oss')} style={{ flex: 1, background: '#ff6b00', border: 'none' }}>Run Claude</button>
+                    <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.promptId, 'google')} style={{ flex: 1, background: 'var(--accent)' }}>Run Google Search</button>
+                  </div>
+                )}
+
+                {/* LAYER 3: Detailed Output */}
+                <div className={`response-details-container ${showDetails ? 'expanded' : 'collapsed'}`}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '20px', alignItems: 'start' }}>
+                    {/* Gemini Detailed */}
+                    <div>
+                      <span className="modal-label">Gemini Full Text</span>
+                      {evalResults[selectedDetail.promptId] && (
+                        <div className="response-full" style={{ borderLeft: '2px solid var(--primary)', height: '450px', overflowY: 'auto', wordBreak: 'break-word' }}>
+                          <div>{evalResults[selectedDetail.promptId].response_text}</div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* OSS Detailed */}
+                    <div>
+                      <span className="modal-label" style={{ color: '#ff6b00' }}>Claude Full Text</span>
+                      {ossEvalResults[selectedDetail.promptId] && (
+                        <div className="response-full" style={{ borderLeft: '2px solid #ff6b00', height: '450px', overflowY: 'auto', wordBreak: 'break-word' }}>
+                          <div>{ossEvalResults[selectedDetail.promptId].response_text}</div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Google Detailed */}
+                    <div>
+                      <span className="modal-label" style={{ color: 'var(--accent)' }}>Google Search Full Text</span>
+                      {googleEvalResults[selectedDetail.promptId] && (
+                        <>
+                          <div className="response-full" style={{ borderLeft: '2px solid var(--accent)', height: '450px', overflowY: 'auto', wordBreak: 'break-word' }}>
+                            <div>{googleEvalResults[selectedDetail.promptId].response_text}</div>
+                          </div>
+
+                          {googleEvalResults[selectedDetail.promptId].sources && googleEvalResults[selectedDetail.promptId].sources.length > 0 && (
+                            <div className="source-list">
+                              <span className="modal-label" style={{ fontSize: '0.65rem', color: 'var(--accent)', marginTop: '24px' }}>Deep Research Sources</span>
+                              {googleEvalResults[selectedDetail.promptId].sources.map((source, idx) => (
+                                <a key={idx} href={source.url} target="_blank" rel="noopener noreferrer" className="source-item">
+                                  {source.title}
+                                  <span className="source-url">{source.url}</span>
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )
+        )
       }
 
       {/* Toast Notifications */}

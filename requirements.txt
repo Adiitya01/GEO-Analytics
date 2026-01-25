@@ -6,3 +6,5 @@ google-genai
 pydantic
 fastapi
 uvicorn
+cerebras-cloud-sdk
+openai

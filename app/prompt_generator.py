@@ -1,14 +1,10 @@
 # app/prompt_generator.py
 
 import json
-from google import genai
 from typing import List
 from app.schemas import CompanyUnderstanding, GeneratedPrompt
-from app.config import GEMINI_API_KEY, GEMINI_MODEL_NAME
-
-client = None
-if GEMINI_API_KEY:
-    client = genai.Client(api_key=GEMINI_API_KEY)
+from app.config import GEMINI_API_KEY, GEMINI_MODEL_NAME, CEREBRAS_API_KEY
+from app.ai_client import generate_ai_response, cerebras_client
 
 def generate_user_prompts(company: CompanyUnderstanding) -> List[GeneratedPrompt]:
     """
@@ -40,19 +36,9 @@ Requirements:
 """
 
     try:
-        if not client:
-            raise ValueError("GEMINI_API_KEY not configured")
-
-        response = client.models.generate_content(
-            model=GEMINI_MODEL_NAME,
-            contents=prompt,
-            config={
-                "response_mime_type": "application/json"
-            }
-        )
-
-        # Clean up response text in case of markdown blocks
-        res_text = response.text.strip()
+        # Use Cerebras for prompt generation if available
+        provider = "cerebras" if cerebras_client else "gemini"
+        res_text = generate_ai_response(prompt, provider=provider, response_mime_type="application/json")
         if res_text.startswith("```"):
             import re
             # Try to extract content between first [ and last ] or first { and last }

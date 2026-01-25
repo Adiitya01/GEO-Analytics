@@ -41,6 +41,7 @@ class EvaluatePromptRequest(BaseModel):
     company_profile: CompanyUnderstanding
     prompt: GeneratedPrompt
     use_google_search: bool = False
+    provider: str = "gemini"
 
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_company(request: AnalysisRequest):
@@ -89,7 +90,12 @@ async def bulk_import_prompts(request: BulkImportRequest):
 async def evaluate_prompt(request: EvaluatePromptRequest):
     try:
         # evaluate_visibility expects a list, so we wrap it
-        report = evaluate_visibility(request.company_profile, [request.prompt], use_google_search=request.use_google_search)
+        report = await evaluate_visibility(
+            request.company_profile, 
+            [request.prompt], 
+            use_google_search=request.use_google_search,
+            provider=request.provider
+        )
         return report.model_results[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -98,11 +104,17 @@ class EvaluateAllRequest(BaseModel):
     company_profile: CompanyUnderstanding
     prompts: List[GeneratedPrompt]
     use_google_search: bool = False
+    provider: str = "gemini"
 
 @app.post("/evaluate-all", response_model=VisibilityReport)
 async def evaluate_all(request: EvaluateAllRequest):
     try:
-        report = evaluate_visibility(request.company_profile, request.prompts, use_google_search=request.use_google_search)
+        report = await evaluate_visibility(
+            request.company_profile, 
+            request.prompts, 
+            use_google_search=request.use_google_search,
+            provider=request.provider
+        )
         return report
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

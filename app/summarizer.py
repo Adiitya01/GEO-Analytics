@@ -1,13 +1,9 @@
 # app/summarizer.py
 
 import json
-from google import genai
 from app.schemas import CompanyUnderstanding
-from app.config import GEMINI_API_KEY, GEMINI_MODEL_NAME
-
-client = None
-if GEMINI_API_KEY:
-    client = genai.Client(api_key=GEMINI_API_KEY)
+from app.config import GEMINI_API_KEY, GEMINI_MODEL_NAME, CEREBRAS_API_KEY
+from app.ai_client import generate_ai_response, cerebras_client
 
 def summarize_company(chunks: list[str], manual_points: str = "", region: str = "Global") -> CompanyUnderstanding:
     """
@@ -49,19 +45,9 @@ JSON Schema:
 }}
 """
     try:
-        if not client:
-            raise ValueError("GEMINI_API_KEY not configured")
-
-        response = client.models.generate_content(
-            model=GEMINI_MODEL_NAME,
-            contents=prompt,
-            config={
-                "response_mime_type": "application/json"
-            }
-        )
-        
-        # Clean up response text in case of markdown blocks
-        res_text = response.text.strip()
+        # Use Cerebras for summarization if available (it's faster for text processing)
+        provider = "cerebras" if cerebras_client else "gemini"
+        res_text = generate_ai_response(prompt, provider=provider, response_mime_type="application/json")
         if res_text.startswith("```"):
             # Find the first and last backticks to extract content
             import re
