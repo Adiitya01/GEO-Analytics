@@ -7,7 +7,7 @@ from functools import partial
 from typing import List, Optional
 from app.schemas import CompanyUnderstanding, GeneratedPrompt, ModelResponse, EvaluationMetric, VisibilityReport, SearchSource
 from app.config import GEMINI_API_KEY, GEMINI_MODEL_NAME, CEREBRAS_API_KEY, CEREBRAS_MODEL_NAME, OPENROUTER_MODEL_NAME
-from app.ai_client import generate_ai_response, gemini_client, cerebras_client
+from app.ai_client import generate_ai_response, gemini_client, grounding_tool, cerebras_client
 
 async def evaluate_single_prompt(
     company: CompanyUnderstanding, 
@@ -26,62 +26,59 @@ async def evaluate_single_prompt(
 
     # 1. Get raw AI response
     try:
-        if use_google_search:
-            if not gemini_client:
-                 raise ValueError("GEMINI_API_KEY not configured for Google Search")
+        # We now use the unified ai_client for EVERY provider
+        # Gemini will automatically include search grounding if tools are configured in ai_client
+        raw_ai_result = await loop.run_in_executor(
+            None, 
+            partial(generate_ai_response, gen_prompt.prompt_text, provider=provider)
+        )
 
-            # Configure config for google search
-            generation_config = {'tools': [{"google_search": {}}]}
-
-            # Run blocking Gemini call in a thread
-            def run_google_search():
-                return gemini_client.models.generate_content(
-                    model=GEMINI_MODEL_NAME,
-                    contents=gen_prompt.prompt_text,
-                    config=generation_config
-                )
+        # Handle different return types (Gemini returns a response object, others return string)
+        if hasattr(raw_ai_result, 'candidates') and raw_ai_result.candidates:
+            # --- GEMINI Grounding Logic ---
+            response_text = raw_ai_result.text
             
-            ai_response = await loop.run_in_executor(None, run_google_search)
-            response_text = ai_response.text
-            
-            # Robust Source Extraction
+            # 1. Add the "Search Result Reference" link (Original Google AI Search logic)
             sources.append(SearchSource(
-                title="Live Google Search Result",
+                title="Live Google Search Grounding",
                 url="https://www.google.com/search?q=" + gen_prompt.prompt_text.replace(" ", "+")
             ))
 
-            if hasattr(ai_response, 'grounding_metadata'):
-                metadata = ai_response.grounding_metadata
-                if hasattr(metadata, 'grounding_chunks'):
+            # 2. Extract official grounding sources from Gemini metadata
+            if raw_ai_result.candidates[0].grounding_metadata:
+                metadata = raw_ai_result.candidates[0].grounding_metadata
+                if metadata.grounding_chunks:
                     for chunk in metadata.grounding_chunks:
-                        if hasattr(chunk, 'web') and chunk.web:
+                        if chunk.web:
                             sources.append(SearchSource(
-                                title=chunk.web.title or "Deep Research Link",
+                                title=chunk.web.title or "Verified Web Source",
                                 url=chunk.web.uri
                             ))
         else:
-            # Run blocking standard generation in/ thread
-            response_text = await loop.run_in_executor(
-                None, 
-                partial(generate_ai_response, gen_prompt.prompt_text, provider=provider)
-            )
-            
-            # Extract URLs from text for non-search providers to show as "sources"
-            import re
-            url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'
-            found_urls = re.findall(url_pattern, response_text)
-            unique_urls = list(set(found_urls))
-            
-            for url in unique_urls:
-                 # Simple cleanup to avoid punctuation at end of URL
-                clean_url = url.rstrip(').,;!?')
-                if clean_url:
-                    sources.append(SearchSource(
-                        title=f"Cited Resource ({provider.capitalize()})",
-                        url=clean_url
-                    ))
+            # --- CLAUDE / Other Models Logic ---
+            response_text = str(raw_ai_result)
 
-        print(f"[SUCCESS] Generated response for '{gen_prompt.prompt_text[:20]}...'")
+        # 3. GLOBAL Extraction: Regex scan for any URLs in the text (works for Claude/Cerebras too)
+        import re
+        url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'
+        found_urls = re.findall(url_pattern, response_text)
+        unique_urls = list(set(found_urls))
+        
+        # Add regex found URLs if they aren't already in sources
+        existing_urls = [s.url for s in sources]
+        for url in unique_urls:
+            clean_url = url.rstrip(').,;!?')
+            if clean_url and clean_url not in existing_urls:
+                # Catch specific reference labels if possible, otherwise generic
+                title = f"Reference found in response"
+                if "anthropic" in provider.lower() or "claude" in provider.lower():
+                    title = f"Claude Reference"
+                elif "cerebras" in provider.lower():
+                    title = f"Cerebras Source"
+                
+                sources.append(SearchSource(title=title, url=clean_url))
+
+        print(f"[SUCCESS] Generated response for '{gen_prompt.prompt_text[:20]}...' with {len(sources)} reference(s)")
     except Exception as e:
         error_msg = str(e)
         print(f"[ERROR] Content generation failed: {error_msg}")
