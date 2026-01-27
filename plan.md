@@ -4,8 +4,8 @@
 
 ### **Backend Architecture**
 - **Framework**: FastAPI (Python).
-- **AI Orchestration**: Unified `ai_client` supporting multiple providers.
-    - **Gemini**: Primary engine for prompt generation & Google Search Grounding.
+- **AI Orchestration**: Unified `ai_client` supporting multiple providers with modern SDKs.
+    - **Gemini**: Primary engine for prompt generation & **Official Google Search Grounding** (using modern `google-genai` SDK).
     - **Cerebras**: Ultra-fast inference for heavy-lifting (summarization, standard evaluation).
     - **OpenRouter (Claude)**: Secondary model for comparative auditing.
 - **Data Ingestion**:
@@ -18,46 +18,42 @@
 - **Parallel Evaluation Engine**:
     - Runs prompts concurrently with semaphore limits to respect API quotas.
     - Extracts: Brand Presence, Sentiment, Accuracy Score, Competitor Ranks.
-    - **Grounding**: Capability to toggle Google Search Grounding for live web results.
-    - **Reference Extraction**: Automatically extracts visited URLs/citations from all models (Gemini, Claude, Google).
+- **Advanced Grounding & Reference Extraction**:
+    - **Unified Logic**: Gemini and Claude both generate live reference links.
+    - **Gemini Grounding**: Automatically retrieves official `grounding_chunks` (URLs & Titles) using the latest Google GenAI SDK.
+    - **Regex Citation Extraction**: Automatically scans model responses (Claude/Cerebras) to capture and display URLs mentioned in text.
+    - **Live Reference Links**: Every evaluation includes a direct "Live Google Search" grounding link for verification.
 - **Frontend**:
-    - Next.js Dashboard with glassmorphism UI.
+    - Next.js Dashboard with glassmorphism UI and a **Dynamic Sidebar**.
     - Real-time status updates (toasts, loading states).
-    - Interactive "Drill-down" modals to see full AI responses and reasoning.
-    - **Comparative View**: Side-by-side results for Gemini, Claude, and Google.
+    - **References View**: Dedicated repository of all visited sites, categorized by AI provider.
+    - **Comparative View**: Side-by-side results for Gemini, Claude, and Google Search.
 
 ---
 
 ## 2. Optimization Roadmap (To Be "Best in Market")
 
 ### Phase 1: Data Accuracy & "True" Vision (Backend)
-- [ ] **Headless Browsing Integration**:
-    - **Goal**: Replace `requests` with **Playwright** or **Selenium**.
-    - **Why**: To accurately scrape Single Page Applications (React/Vue/Angular) where content is rendered via JavaScript. This ensures the AI "sees" the same content a human user sees.
-- [ ] **Real SERP Scraping**:
-    - **Goal**: Integrate a SERP API (e.g., Serper.dev or custom scraper) alongside LLM generation.
-    - **Why**: To ground "Rank" data in absolute truth. LLMs can hallucinate their own search results; programmatic verification is the gold standard.
+- [ ] **Real SERP API Integration**:
+    - **Goal**: Integrate a SERP API (e.g., Serper.dev or SerpApi).
+    - **Why**: To ground "Rank" data in absolute truth by comparing AI responses with actual Google Search layout.
 
 ### Phase 2: Evaluation Intelligence (The "Brain")
-- [ ] **Chain-of-Thought (CoT) Evaluation**:
-    - **Goal**: Upgrade evaluation prompts to formatted reasoning steps (Step 1: Identify Entities -> Step 2: Analyze Sentiment -> Step 3: Score).
-    - **Why**: Reduces AI "grading variance" and improves consistency of scores.
 - [ ] **Citation Validation**:
-    - **Goal**: Add a background task to `HEAD` request cited URLs.
-    - **Why**: Detect and flag "hallucinated links" (404s) which destroys trust in the tool.
+    - **Goal**: Add a background task to `HEAD` request cited URLs to detect "hallucinated links" (404s).
+- [ ] **Advanced Scoring Algorithms**: 
+    - **Goal**: Weight scores based on brand positioning (e.g., being in the first paragraph is worth more than a footer mention).
 
-### Phase 3: Performance & Scalability
+### Phase 3: Performance & UX Polish
 - [ ] **Streaming Responses (SSE)**:
     - **Goal**: Implement Server-Sent Events in FastAPI.
-    - **Why**: Instead of waiting 30s for a batch to finish, the user sees results populating row-by-row in real-time.
-- [ ] **Smart Caching Layer**:
-    - **Goal**: Implement Redis or in-memory LRU cache.
-    - **Why**: Prevent re-running cost-heavy AI queries for the same company/URL within 24 hours.
+    - **Why**: So the user sees results populating in the dashboard in real-time as they finish.
 
-### Phase 4: Product Logic & Differentiation
-- [ ] **Competitor Share of Voice**:
-    - **Feature**: Aggregated pie charts showing dominance (e.g., "Salesforce appears in 40% of your keywords").
-- [ ] **Content Gap Analysis**:
-    - **Feature**: "Competitors ranking #1 consistently use terms X, Y, Z. Your site uses none."
+### Phase 4: Product Logic & Analytics
 - [ ] **Historical Tracking (Database)**:
-    - **Feature**: Integrate a database (SQLite/PostgreSQL) to save audit history and show "Visibility improved by +15% this week."
+    - **Goal**: Integrate **SQLite** or **PostgreSQL**.
+    - **Why**: To save audit history and show "Visibility Trends" (improvement over time).
+- [ ] **Visual Analytics**:
+    - **Feature**: Aggregated pie charts showing **Competitor Share of Voice**.
+- [ ] **Content Gap Analysis**:
+    - **Feature**: AI-driven feedback: "Competitors ranking #1 consistently use terms X, Y, Z. Your site is missing these specific keywords."

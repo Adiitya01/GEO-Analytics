@@ -37,6 +37,15 @@ export default function DashboardView({ report, companyProfile }) {
         );
     }
 
+    // Helper for dynamic colors based on score
+    const getScoreColor = (score) => {
+        if (score >= 70) return '#10b981'; // Emerald Green
+        if (score >= 40) return '#f59e0b'; // Amber/Orange
+        return '#ef4444'; // Red
+    };
+
+    const scoreColor = getScoreColor(report.overall_score);
+
     return (
         <div style={{ padding: '40px 60px', maxWidth: '1400px', margin: '0 auto', animation: 'fadeIn 0.6s ease-out' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '48px' }}>
@@ -72,16 +81,17 @@ export default function DashboardView({ report, companyProfile }) {
                             <path
                                 d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                                 fill="none"
-                                stroke="var(--accent)"
+                                stroke={scoreColor}
                                 strokeWidth="2.5"
                                 strokeDasharray={`${report.overall_score}, 100`}
                                 strokeLinecap="round"
                                 className="score-circle"
+                                style={{ transition: 'stroke-dasharray 1s ease-in-out, stroke 1s ease' }}
                             />
                         </svg>
                         <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
                             <div style={{ fontSize: '3.5rem', fontWeight: 900, color: '#ffffff', lineHeight: 1 }}>{report.overall_score}</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.2em', marginTop: '4px' }}>Score</div>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: scoreColor, textTransform: 'uppercase', letterSpacing: '0.2em', marginTop: '4px' }}>Score</div>
                         </div>
                     </div>
                     <h3 style={{ color: '#ffffff', fontSize: '1.5rem', marginBottom: '12px', fontWeight: 700 }}>Overall GEO Authority</h3>
@@ -94,9 +104,9 @@ export default function DashboardView({ report, companyProfile }) {
                             <Award size={28} style={{ color: 'var(--primary)' }} />
                         </div>
                         <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Market Authority</div>
-                        <div style={{ fontSize: '1.75rem', color: '#ffffff', fontWeight: 800 }}>{report.overall_score > 60 ? 'Dominant' : report.overall_score > 30 ? 'Growing' : 'Initial'}</div>
+                        <div style={{ fontSize: '1.75rem', color: '#ffffff', fontWeight: 800 }}>{report.overall_score >= 70 ? 'Industry Leader' : report.overall_score >= 40 ? 'Established' : 'Emerging'}</div>
                         <div style={{ height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px', marginTop: '20px', overflow: 'hidden' }}>
-                            <div style={{ height: '100%', background: 'var(--primary)', width: `${report.overall_score}%` }}></div>
+                            <div style={{ height: '100%', background: scoreColor, width: `${report.overall_score}%`, transition: 'width 1s ease, background 1s ease' }}></div>
                         </div>
                     </div>
 
