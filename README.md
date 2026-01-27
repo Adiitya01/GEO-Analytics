@@ -89,6 +89,3 @@ The API will be available at `http://localhost:8000`.
   - `evaluator.py`: Logic for scoring visibility.
   - `text_cleaner.py`: Utilities for text processing.
 
-## License
-
-[MIT](LICENSE)
