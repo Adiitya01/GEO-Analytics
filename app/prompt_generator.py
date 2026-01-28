@@ -8,10 +8,10 @@ from app.ai_client import generate_ai_response, cerebras_client
 
 def generate_user_prompts(company: CompanyUnderstanding) -> List[GeneratedPrompt]:
     """
-    Generates 20 realistic user queries to test AI search visibility.
+    Generates 10 realistic user queries to test AI search visibility.
     """
     prompt = f"""
-You are an expert in Generative Engine Optimization (GEO). Your task is to generate 20 realistic and highly diverse user queries that someone might ask an AI (like ChatGPT or Gemini) to find services or companies in the industry: {company.industry}.
+You are an expert in Generative Engine Optimization (GEO). Your task is to generate 10 realistic and highly diverse user queries that someone might ask an AI (like ChatGPT or Gemini) to find services or companies in the industry: {company.industry}.
 The user is located in or interested in the region: {company.region}. Ensure queries reflect local terminology and search intent for this specific market.
 
 Company Context:
@@ -20,18 +20,17 @@ Company Context:
 - Problems Solved: {", ".join(company.core_problems_solved)}
 - Focus Region: {company.region}
 
-Generate a total of 20 queries distributed across these categories:
+Generate a total of 10 queries distributed across these categories:
 1. Unbiased Discovery: (Broad searches for top companies/tools in the sector)
 2. Specific Solution-Seeking: (Focus on solving specific technical or business pain points)
 3. Competitive Comparison: (Comparing top players or asking for alternatives)
 4. Intent-Based / Transactional: (Ready to hire or looking for a specific project partner)
 5. Brand Awareness & Verification: (Direct questions about {company.company_name})
-6. Long-Tail / Niche: (Very specific or technical queries related to {company.offerings[0] if company.offerings else 'the industry'})
 
 Requirements:
 - Ensure the queries sound like real humans asking an AI.
 - Mix high-level and granular queries.
-- Return exactly 20 queries.
+- Return exactly 10 queries.
 - Return a JSON list of objects with "prompt_text" and "intent_category". 
 """
 
@@ -68,12 +67,21 @@ Requirements:
             if not isinstance(data, list):
                 raise ValueError("AI did not return a list of prompts")
 
-        return [GeneratedPrompt(**item) for item in data[:20]]
+        return [GeneratedPrompt(**item) for item in data[:10]]
     
     except Exception as e:
         print(f"[ERROR] Prompt generation failed: {e}")
         # Return a smaller fallback list if fails
-        return [
-            GeneratedPrompt(prompt_text=f"Top companies in {company.industry}", intent_category="Discovery"),
-            GeneratedPrompt(prompt_text=f"Who is the leader in {company.offerings[0] if company.offerings else company.industry}?", intent_category="Discovery")
+        fallback_queries = [
+            f"Top companies in {company.industry}",
+            f"Who is the leader in {company.offerings[0] if company.offerings else company.industry}?",
+            f"Best {company.industry} solutions for businesses",
+            f"Compare {company.company_name} with competitors",
+            f"Is {company.company_name} good for {company.core_problems_solved[0] if company.core_problems_solved else 'customers'}?",
+            f"Affordable {company.industry} services in {company.region}",
+            f"Innovative startups in {company.industry}",
+            f"How to choose a {company.industry} partner?",
+            f"Reviews of {company.company_name}",
+            f"What does {company.company_name} offer?"
         ]
+        return [GeneratedPrompt(prompt_text=q, intent_category="Fallback") for q in fallback_queries[:10]]
