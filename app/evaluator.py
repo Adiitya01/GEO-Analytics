@@ -30,7 +30,7 @@ async def evaluate_single_prompt(
         # Gemini will automatically include search grounding if tools are configured in ai_client
         raw_ai_result = await loop.run_in_executor(
             None, 
-            partial(generate_ai_response, gen_prompt.prompt_text, provider=provider)
+            partial(generate_ai_response, gen_prompt.prompt_text, provider=provider, return_full_response=True)
         )
 
         # Handle different return types (Gemini returns a response object, others return string)
