@@ -8,10 +8,10 @@ from app.ai_client import generate_ai_response, cerebras_client
 
 def generate_user_prompts(company: CompanyUnderstanding) -> List[GeneratedPrompt]:
     """
-    Generates 10 realistic user queries to test AI search visibility.
+    Generates 20 realistic user queries to test AI search visibility.
     """
     prompt = f"""
-You are an expert in Generative Engine Optimization (GEO). Your task is to generate 10 realistic and highly diverse user queries that someone might ask an AI (like ChatGPT or Gemini) to find services or companies in the industry: {company.industry}.
+You are an expert in Generative Engine Optimization (GEO). Your task is to generate 20 realistic and highly diverse user queries that someone might ask an AI (like ChatGPT or Gemini) to find services or companies in the industry: {company.industry}.
 The user is located in or interested in the region: {company.region}. Ensure queries reflect local terminology and search intent for this specific market.
 
 Company Context:
@@ -20,7 +20,7 @@ Company Context:
 - Problems Solved: {", ".join(company.core_problems_solved)}
 - Focus Region: {company.region}
 
-Generate a total of 10 queries distributed across these categories:
+Generate a total of 20 queries distributed across these categories:
 1. Unbiased Discovery: (Broad searches for top companies/tools in the sector)
 2. Specific Solution-Seeking: (Focus on solving specific technical or business pain points)
 3. Competitive Comparison: (Comparing top players or asking for alternatives)
@@ -30,7 +30,7 @@ Generate a total of 10 queries distributed across these categories:
 Requirements:
 - Ensure the queries sound like real humans asking an AI.
 - Mix high-level and granular queries.
-- Return exactly 10 queries.
+- Return exactly 20 queries.
 - Return a JSON list of objects with "prompt_text" and "intent_category". 
 """
 
@@ -73,11 +73,7 @@ Requirements:
                 print(f"[DEBUG] Raw AI response for prompts: {res_text[:500]}...")
                 raise ValueError(f"AI did not return a list of prompts. Got type: {type(data)}")
 
-<<<<<<< HEAD
-        return [GeneratedPrompt(**item) for item in data[:10]]
-=======
         return [GeneratedPrompt(**item) for item in data[:20] if isinstance(item, dict) and "prompt_text" in item]
->>>>>>> 6b9e848 (Fix GEO Authority scoring: Implement strict unbiased rank-based evaluation and fix batch audit crashes)
     
     except Exception as e:
         print(f"[ERROR] Prompt generation failed: {e}")
@@ -96,4 +92,4 @@ Requirements:
             f"Reviews of {company.company_name}",
             f"What does {company.company_name} offer?"
         ]
-        return [GeneratedPrompt(prompt_text=q, intent_category="Fallback") for q in fallback_queries[:10]]
+        return [GeneratedPrompt(prompt_text=q, intent_category="Fallback") for q in fallback_queries[:20]]

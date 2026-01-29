@@ -24,28 +24,13 @@ async def evaluate_single_prompt(
     sources = []
     loop = asyncio.get_running_loop()
 
-    # 1. Prepare an "Informed" prompt for the model being tested
-    # Instead of just the raw prompt, we give the model context about the company being audited
-    # to trigger its internal knowledge and search grounding more effectively.
-    # RAW QUERY: We use the exact text the user would type. 
-    # This provides the most realistic 'GEO' audit.
-    raw_query = gen_prompt.prompt_text
-
-    response_text = ""
-    sources = []
-    loop = asyncio.get_running_loop()
-
     # 1. Get raw AI response
     try:
         # We now use the unified ai_client for EVERY provider
         # Gemini will automatically include search grounding if tools are configured in ai_client
         raw_ai_result = await loop.run_in_executor(
             None, 
-<<<<<<< HEAD
-            partial(generate_ai_response, gen_prompt.prompt_text, provider=provider, return_full_response=True)
-=======
-            partial(generate_ai_response, raw_query, provider=provider, use_search=use_google_search)
->>>>>>> 6b9e848 (Fix GEO Authority scoring: Implement strict unbiased rank-based evaluation and fix batch audit crashes)
+            partial(generate_ai_response, gen_prompt.prompt_text, provider=provider, use_search=use_google_search, return_full_response=True)
         )
 
         # Handle different return types (Gemini returns a response object, others return string)
@@ -84,7 +69,6 @@ async def evaluate_single_prompt(
         for url in unique_urls:
             clean_url = url.rstrip(').,;!?')
             if clean_url and clean_url not in existing_urls:
-                # Better Labeling from your snippet
                 title = f"Reference found in response"
                 if "openrouter" in provider.lower() or "claude" in provider.lower():
                     title = f"Claude Reference"
@@ -108,7 +92,6 @@ async def evaluate_single_prompt(
             response_text = f"Analysis error: {error_msg}"
         
         # IMPORTANT: Even on error, try to extract any URLs from the error message or partial response
-        # This ensures we store ALL sources regardless of success/failure
         import re
         url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'
         found_urls = re.findall(url_pattern, response_text + " " + error_msg)
@@ -215,9 +198,8 @@ async def evaluate_visibility(company: CompanyUnderstanding, prompts: List[Gener
     Executes all prompts in PARALLEL and evaluates how the company appears in AI responses.
     """
     # Create tasks for all prompts
-    # We use a Semaphore to limit concurrency to 5 to avoid Rate Limits (HTTP 429)
-    # causing accuracy drops described in the conversation.
-    sem = asyncio.Semaphore(5) 
+    # We use a Semaphore to limit concurrency to 3 to avoid Rate Limits (HTTP 429)
+    sem = asyncio.Semaphore(3) 
 
     async def sem_task(p):
         async with sem:
@@ -226,14 +208,13 @@ async def evaluate_visibility(company: CompanyUnderstanding, prompts: List[Gener
     tasks = [sem_task(p) for p in prompts]
     
     # Run all tasks concurrently
-    print(f"[INFO] Starting parallel evaluation for {len(tasks)} prompts with provider={provider} (limit=5 concurrent)...")
+    print(f"[INFO] Starting parallel evaluation for {len(tasks)} prompts with provider={provider} (limit=3 concurrent)...")
     model_results = await asyncio.gather(*tasks)
     print(f"[INFO] Completed parallel evaluation.")
 
     # 3. Calculate Overall Visibility Score and Competitor Insights
     
     # STRICT rank-based scoring system
-    # Max score per prompt is 100.
     total_score = 0
     mentions = 0
     
@@ -254,8 +235,7 @@ async def evaluate_visibility(company: CompanyUnderstanding, prompts: List[Gener
                     # Mentioned in text but not in a recommendation list
                     prompt_score = 15
                 
-                # Accuracy Penalty: If the AI hallucinates or gets details wrong, penalize the visibility
-                # because "wrong visibility" is often worse than no visibility in GEO.
+                # Accuracy Penalty
                 prompt_score *= (0.5 + (r.evaluation.accuracy_score * 0.5))
             
             total_score += prompt_score
@@ -266,23 +246,20 @@ async def evaluate_visibility(company: CompanyUnderstanding, prompts: List[Gener
     
     avg_accuracy = sum(r.evaluation.accuracy_score for r in model_results) / len(model_results) if model_results else 0
 
-    # Aggregate competitor info - Fix: Count ALL mentions
+    # Aggregate competitor info
     comp_stats = {} # name -> {mentions: int, ranks: []}
     for r in model_results:
-        # Count from the simple list
         for name in r.evaluation.competitors_mentioned:
             if name not in comp_stats:
                 comp_stats[name] = {"mentions": 0, "ranks": []}
             comp_stats[name]["mentions"] += 1
             
-        # Also grab ranks from the structured list
         for c in r.evaluation.competitor_ranks:
             if c.name in comp_stats and c.rank is not None:
                 if c.rank not in comp_stats[c.name]["ranks"]:
                     comp_stats[c.name]["ranks"].append(c.rank)
     
     competitor_summary = []
-    # Sort by mentions
     sorted_comps = sorted(comp_stats.items(), key=lambda x: x[1]["mentions"], reverse=True)
     
     for name, stats in sorted_comps:
