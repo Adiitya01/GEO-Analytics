@@ -1,27 +1,36 @@
 # app/ai_client.py
 
 import json
+import time
+import random
+from datetime import datetime, timedelta
 from google import genai
 from google.genai import types
 from cerebras.cloud.sdk import Cerebras
 from openai import OpenAI
-import time
-from datetime import datetime, timedelta
 from app.config import GEMINI_API_KEY, GEMINI_MODEL_NAME, CEREBRAS_API_KEY, CEREBRAS_MODEL_NAME, OPENROUTER_API_KEY, OPENROUTER_MODEL_NAME
 
-# Global state to track Cerebras health
-CEREBRAS_DISABLED_UNTIL = None
+# Provider State Management
+class ProviderState:
+    def __init__(self):
+        self.disabled_until = {} # provider_name -> datetime
+        self.temp_disabled = {
+            "openrouter": True # TEMP DISABLED until auth verified
+        }
 
-def is_cerebras_disabled():
-    global CEREBRAS_DISABLED_UNTIL
-    if CEREBRAS_DISABLED_UNTIL and datetime.now() < CEREBRAS_DISABLED_UNTIL:
+    def is_enabled(self, name):
+        if self.temp_disabled.get(name):
+            return False
+        until = self.disabled_until.get(name)
+        if until and datetime.now() < until:
+            return False
         return True
-    return False
 
-def disable_cerebras():
-    global CEREBRAS_DISABLED_UNTIL
-    CEREBRAS_DISABLED_UNTIL = datetime.now() + timedelta(days=1)
-    print("[CRITICAL] Cerebras 429 hit. Disabling for 24 hours.")
+    def disable(self, name, hours=24):
+        print(f"[CRITICAL] Disabling provider '{name}' for {hours} hours due to quota limits.")
+        self.disabled_until[name] = datetime.now() + timedelta(hours=hours)
+
+provider_state = ProviderState()
 
 # Initialize Gemini Client (Official Modern SDK)
 gemini_client = None
@@ -29,8 +38,10 @@ grounding_tool = None  # Google Search tool configuration
 
 if GEMINI_API_KEY:
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-    # Configure Google Search grounding tool (official way)
-    grounding_tool = types.Tool(google_search=types.GoogleSearch())
+    # Use Google Search tool for grounding (Modern SDK way for Gemini 2.0+)
+    grounding_tool = types.Tool(
+        google_search=types.GoogleSearch()
+    )
     print(f"[INFO] Gemini client initialized with Google Search grounding support")
 
 # Initialize Cerebras Client
@@ -44,82 +55,111 @@ if OPENROUTER_API_KEY:
     openrouter_client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=OPENROUTER_API_KEY,
+        default_headers={
+            "HTTP-Referer": "http://localhost:8000",
+            "X-Title": "GEO Engine"
+        }
     )
 
 def generate_ai_response(prompt: str, provider: str = "gemini", response_mime_type: str = "text/plain", use_search: bool = False, return_full_response: bool = False) -> any:
     """
-    Tiered Orchestration Strategy:
-    1. Try Cerebras (Fast/No search) -> Disable on 429
-    2. OpenRouter (Claude) Fallback
-    3. Gemini Tier (Structured ONLY if no search)
-    4. Optional -> Post-process Gemini free text to JSON if search was used
+    Unified interface to generate content from different providers (Gemini, Cerebras, or OpenRouter).
+    Includes retry logic for rate limits and hard-disabling on quota hits.
     """
     
-    # 1. Try Cerebras First (Strictly for non-search tasks)
-    if provider == "cerebras" and cerebras_client and not is_cerebras_disabled() and not use_search:
-        try:
-            response = cerebras_client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model=CEREBRAS_MODEL_NAME,
-                response_format={"type": "json_object"} if response_mime_type == "application/json" else None,
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            if "429" in str(e):
-                disable_cerebras()
-            print(f"[WARNING] Cerebras fallback: {e}")
-            provider = "gemini" 
-
-    # 2. OpenRouter (Claude) Fallback
-    if provider == "openrouter" and openrouter_client:
-        try:
-            response = openrouter_client.chat.completions.create(
-                model=OPENROUTER_MODEL_NAME,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"} if response_mime_type == "application/json" else None
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            print(f"[WARNING] OpenRouter fallback: {e}")
-            provider = "gemini"
-
-    # 3. Gemini Tier (General purpose + Search)
-    if gemini_client:
-        try:
-            config_params = {}
-            # Rule: Gemini WITH search -> Free text ONLY (NO schema)
-            if use_search and grounding_tool:
-                config_params["tools"] = [grounding_tool]
-            
-            # Rule: Gemini WITHOUT search -> Structured output allowed
-            elif response_mime_type == "application/json":
-                config_params["response_mime_type"] = "application/json"
-            
-            config = types.GenerateContentConfig(**config_params) if config_params else None
-            
-            response = gemini_client.models.generate_content(
-                model=GEMINI_MODEL_NAME,
-                contents=prompt,
-                config=config
-            )
-
-            # Step 4: Optional post-processing
-            # If search was used but JSON was requested, we do an extra small step to structure it
-            if use_search and response_mime_type == "application/json":
-                conversion_prompt = f"Convert the following search results into a clean JSON object based on the context:\n\n{response.text}"
-                structured_res = gemini_client.models.generate_content(
-                    model=GEMINI_MODEL_NAME,
-                    contents=conversion_prompt,
-                    config=types.GenerateContentConfig(response_mime_type="application/json")
-                )
-                return structured_res.text
-
-            if return_full_response:
-                return response
-            return response.text
-
-        except Exception as e:
-            print(f"[ERROR] Gemini generation failed: {e}")
-            raise e
+    max_retries = 3
+    base_delay = 2
     
-    raise ValueError("No AI providers available. Check API keys.")
+    last_exception = None
+    
+    for attempt in range(max_retries):
+        try:
+            # 1. OpenRouter (Claude via GPT-OSS)
+            if provider == "openrouter" and openrouter_client and provider_state.is_enabled("openrouter"):
+                try:
+                    response = openrouter_client.chat.completions.create(
+                        model=OPENROUTER_MODEL_NAME,
+                        messages=[{"role": "user", "content": prompt}],
+                        response_format={"type": "json_object"} if response_mime_type == "application/json" else None
+                    )
+                    return response.choices[0].message.content
+                except Exception as e:
+                    err_str = str(e).lower()
+                    if "401" in err_str or "auth" in err_str:
+                        print(f"[ERROR] OpenRouter Authentication Failed. Disabling until manual fix.")
+                        provider_state.temp_disabled["openrouter"] = True
+                        provider = "gemini" # Fallback
+                    elif "429" in err_str or "quota" in err_str:
+                        print(f"[WARNING] OpenRouter Rate Limit. Retrying...")
+                        delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                        time.sleep(delay)
+                        continue
+                    else:
+                        print(f"[WARNING] OpenRouter error: {e}. Falling back to Gemini.")
+                        provider = "gemini"
+
+            # 2. Cerebras
+            if provider == "cerebras" and cerebras_client and provider_state.is_enabled("cerebras"):
+                try:
+                    response = cerebras_client.chat.completions.create(
+                        messages=[{"role": "user", "content": prompt}],
+                        model=CEREBRAS_MODEL_NAME,
+                        response_format={"type": "json_object"} if response_mime_type == "application/json" else None
+                    )
+                    return response.choices[0].message.content
+                except Exception as e:
+                    err_data = str(e).lower()
+                    if "token_quota_exceeded" in err_data or "quota" in err_data:
+                        print(f"[STOP] Cerebras daily/token quota hit.")
+                        provider_state.disable("cerebras", hours=24)
+                        provider = "gemini" # Immediate switch
+                        return generate_ai_response(prompt, provider="gemini", response_mime_type=response_mime_type, use_search=use_search)
+                    
+                    if "429" in err_data:
+                        delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                        time.sleep(delay)
+                        continue
+                    
+                    provider = "gemini" # Fallback
+
+            # Default: Gemini
+            if gemini_client:
+                try:
+                    config_params = {}
+                    
+                    # Rule: Gemini WITH search -> Free text ONLY (NO JSON mode at the same time)
+                    if use_search and grounding_tool and response_mime_type != "application/json":
+                        config_params["tools"] = [grounding_tool]
+                    elif response_mime_type == "application/json":
+                        config_params["response_mime_type"] = "application/json"
+                    
+                    config = types.GenerateContentConfig(**config_params) if config_params else None
+                    
+                    response = gemini_client.models.generate_content(
+                        model=GEMINI_MODEL_NAME,
+                        contents=prompt,
+                        config=config
+                    )
+                    
+                    # Handle return types
+                    if return_full_response:
+                        return response
+                    if response_mime_type == "application/json":
+                        return response.text
+                    return response.text
+                except Exception as e:
+                    if "429" in str(e) or "quota" in str(e).lower():
+                        delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                        time.sleep(delay)
+                        continue
+                    raise e
+            
+            raise ValueError("No AI provider available.")
+            
+        except Exception as e:
+            last_exception = e
+            if not ("429" in str(e) or "quota" in str(e).lower()):
+                raise e
+    
+    if last_exception: raise last_exception
+    raise ValueError("Failed to generate response.")

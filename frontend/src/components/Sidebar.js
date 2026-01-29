@@ -18,7 +18,7 @@ const Sidebar = ({ isOpen, toggleSidebar, activeView, setActiveView }) => {
             viewBox="0 0 24 24"
             fill="currentColor"
             className={`transition-transform duration-300 ${isOpen ? '' : 'rotate-180'}`}
-            style={{ color: '#2563eb' }}
+            style={{ color: 'var(--primary)' }}
         >
             <path d="M19 2l-14 10 14 10z" />
         </svg>
@@ -28,7 +28,7 @@ const Sidebar = ({ isOpen, toggleSidebar, activeView, setActiveView }) => {
         <aside className={`sidebar-container ${isOpen ? 'open' : 'closed'}`}>
             {/* Header with Menu Title and Toggle */}
             <div className="sidebar-header">
-                <span className={`header-title ${isOpen ? 'visible' : 'hidden'}`} style={{ color: '#ffffff', fontWeight: '800' }}>
+                <span className={`header-title ${isOpen ? 'visible' : 'hidden'}`} style={{ color: 'var(--foreground)', fontWeight: '900' }}>
                     Menu
                 </span>
                 <button onClick={toggleSidebar} className="toggle-btn" style={{ marginLeft: 'auto' }}>
@@ -48,7 +48,7 @@ const Sidebar = ({ isOpen, toggleSidebar, activeView, setActiveView }) => {
                             className={`nav-item ${activeView === item.id ? 'active' : ''}`}
                             onClick={() => setActiveView(item.id)}
                         >
-                            <item.icon size={20} className="nav-icon" />
+                            <item.icon size={22} className="nav-icon" />
                             <span className={`nav-text ${isOpen ? 'visible' : 'hidden'}`}>
                                 {item.name}
                             </span>

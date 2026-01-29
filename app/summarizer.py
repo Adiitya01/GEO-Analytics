@@ -5,7 +5,7 @@ from app.schemas import CompanyUnderstanding
 from app.config import GEMINI_API_KEY, GEMINI_MODEL_NAME, CEREBRAS_API_KEY
 from app.ai_client import generate_ai_response, cerebras_client
 
-def summarize_company(chunks: list[str], manual_points: str = "", region: str = "Global") -> CompanyUnderstanding:
+def summarize_company(chunks: list[str], manual_points: str = "", region: str = "Global", url: str = "") -> CompanyUnderstanding:
     """
     Summarizes company information by combining website content and manual user points.
     """
@@ -86,14 +86,18 @@ JSON Schema:
             target_users=data.get("target_users", []),
             core_problems_solved=data.get("core_problems_solved", []),
             manual_points=manual_points,
+            url=url,
             region=region
         )
     
     except Exception as e:
         print(f"[ERROR] Summarization failed: {e}")
+        import traceback
+        traceback.print_exc()
         return CompanyUnderstanding(
             company_name="Analysis Pending" if manual_points else "Unknown",
             company_summary="Could not automatically summarize company data.",
             manual_points=manual_points,
+            url=url,
             region=region
         )

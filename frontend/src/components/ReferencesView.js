@@ -46,16 +46,15 @@ export default function ReferencesView({
                 <div style={{
                     padding: '60px',
                     textAlign: 'center',
-                    background: 'var(--card-bg)',
-                    borderRadius: '28px',
-                    border: 'var(--glass-border)',
+                    background: 'white',
+                    borderRadius: '32px',
+                    border: '1px solid rgba(0,0,0,0.08)',
                     maxWidth: '500px',
-                    boxShadow: 'var(--glass-shadow)',
-                    backdropFilter: 'blur(20px)'
+                    boxShadow: '0 30px 60px -12px rgba(0,0,0,0.08)',
                 }}>
                     <Bookmark size={80} style={{ color: 'var(--accent)', marginBottom: '32px', opacity: 0.8 }} />
-                    <h2 style={{ color: '#ffffff', fontSize: '2rem', marginBottom: '16px', fontWeight: 800 }}>No References Stored</h2>
-                    <p style={{ color: '#a1a1aa', lineHeight: '1.6', marginBottom: '32px' }}>
+                    <h2 style={{ color: 'var(--foreground)', fontSize: '2rem', marginBottom: '16px', fontWeight: 800 }}>No References Stored</h2>
+                    <p style={{ color: '#64748b', lineHeight: '1.6', marginBottom: '32px' }}>
                         Run an analysis to populate the list of sites visited by Gemini, Claude, and Google AI during their generation process.
                     </p>
                 </div>
@@ -67,11 +66,11 @@ export default function ReferencesView({
         <div style={{ padding: '40px 60px', maxWidth: '1400px', margin: '0 auto', animation: 'fadeIn 0.6s ease-out' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '48px' }}>
                 <div>
-                    <h1 style={{ textAlign: 'left', fontSize: '3rem', marginBottom: '12px', letterSpacing: '-0.02em' }}>
-                        Stored <span style={{ color: 'var(--accent)' }}>References</span>
+                    <h1 style={{ textAlign: 'left', fontSize: '3rem', marginBottom: '12px', letterSpacing: '-0.02em', background: 'linear-gradient(135deg, #0f172a 0%, #334155 100%)', backgroundClip: 'text', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                        Stored <span style={{ color: 'var(--accent)', WebkitTextFillColor: 'initial' }}>References</span>
                     </h1>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{ padding: '4px 12px', background: 'rgba(45, 212, 191, 0.1)', border: '1px solid rgba(45, 212, 191, 0.2)', borderRadius: '100px', color: 'var(--accent)', fontSize: '0.85rem', fontWeight: 600 }}>
+                        <div style={{ padding: '4px 12px', background: 'rgba(13, 148, 136, 0.08)', border: '1px solid rgba(13, 148, 136, 0.1)', borderRadius: '100px', color: 'var(--accent)', fontSize: '0.85rem', fontWeight: 600 }}>
                             {allReferences.length} Total Citations
                         </div>
                         <span style={{ color: '#64748b', fontSize: '0.9rem' }}>Repositories of knowledge accessed by AI models</span>
@@ -81,22 +80,22 @@ export default function ReferencesView({
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '32px' }}>
                 {Object.entries(byProvider).map(([providerName, refs]) => (
-                    <div key={providerName} className="report-card" style={{ margin: 0, padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                    <div key={providerName} className="report-card" style={{ margin: 0, padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: 'white', border: '1px solid rgba(0,0,0,0.08)' }}>
                         <div style={{
                             padding: '24px',
-                            background: providerName === 'Claude' ? 'rgba(255, 107, 0, 0.1)' : providerName === 'Google AI' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(59, 130, 246, 0.1)',
-                            borderBottom: '1px solid rgba(255,255,255,0.05)',
+                            background: providerName === 'Claude' ? '#fff7ed' : providerName === 'Google AI' ? '#f0fdf4' : '#eff6ff',
+                            borderBottom: '1px solid rgba(0,0,0,0.05)',
                             display: 'flex',
                             alignItems: 'center',
                             gap: '12px'
                         }}>
-                            {providerName === 'Google AI' ? <Search size={24} color="var(--accent)" /> :
-                                providerName === 'Claude' ? <Layers size={24} color="#ff6b00" /> :
-                                    <Globe size={24} color="var(--primary)" />}
+                            {providerName === 'Google AI' ? <Search size={24} style={{ color: '#16a34a' }} /> :
+                                providerName === 'Claude' ? <Layers size={24} style={{ color: '#ea580c' }} /> :
+                                    <Globe size={24} style={{ color: '#2563eb' }} />}
 
                             <div>
-                                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'white' }}>{providerName}</h3>
-                                <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>{refs.length} visited sources</p>
+                                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--foreground)' }}>{providerName}</h3>
+                                <p style={{ fontSize: '0.85rem', color: '#64748b' }}>{refs.length} visited sources</p>
                             </div>
                         </div>
 
@@ -109,30 +108,38 @@ export default function ReferencesView({
                                     rel="noopener noreferrer"
                                     style={{
                                         display: 'block',
-                                        background: 'rgba(255,255,255,0.03)',
+                                        background: '#f8fafc',
                                         padding: '16px',
-                                        borderRadius: '12px',
-                                        border: '1px solid rgba(255,255,255,0.05)',
+                                        borderRadius: '16px',
+                                        border: '1px solid #f1f5f9',
                                         textDecoration: 'none',
                                         transition: 'all 0.2s ease'
                                     }}
-                                    className="reference-item-hover"
+                                    className="reference-item-card"
+                                    onMouseOver={(e) => {
+                                        e.currentTarget.style.borderColor = providerName === 'Claude' ? '#fdba74' : providerName === 'Google AI' ? '#86efac' : '#93c5fd';
+                                        e.currentTarget.style.transform = 'translateX(4px)';
+                                    }}
+                                    onMouseOut={(e) => {
+                                        e.currentTarget.style.borderColor = '#f1f5f9';
+                                        e.currentTarget.style.transform = 'translateX(0)';
+                                    }}
                                 >
-                                    <div style={{ fontSize: '0.9rem', color: 'white', fontWeight: 600, marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>
+                                    <div style={{ fontSize: '0.95rem', color: '#1e293b', fontWeight: 700, marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '85%' }}>
                                             {ref.title || new URL(ref.url).hostname}
                                         </span>
-                                        <ExternalLink size={14} style={{ opacity: 0.5 }} />
+                                        <ExternalLink size={14} style={{ color: '#94a3b8' }} />
                                     </div>
-                                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
                                         {ref.url}
                                     </div>
-                                    <div style={{ fontSize: '0.7rem', color: '#475569', fontStyle: 'italic', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px', marginTop: '8px' }}>
-                                        From query: "{ref.promptText.length > 40 ? ref.promptText.substring(0, 40) + '...' : ref.promptText}"
+                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic', borderTop: '1px solid #f1f5f9', paddingTop: '10px', marginTop: '10px', fontWeight: 500 }}>
+                                        From query: <span style={{ color: '#475569' }}>"{ref.promptText.length > 50 ? ref.promptText.substring(0, 50) + '...' : ref.promptText}"</span>
                                     </div>
                                 </a>
                             )) : (
-                                <div style={{ textAlign: 'center', padding: '40px', color: '#64748b', fontStyle: 'italic' }}>
+                                <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8', fontStyle: 'italic' }}>
                                     No citations recorded for this provider.
                                 </div>
                             )}

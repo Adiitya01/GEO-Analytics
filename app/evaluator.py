@@ -24,13 +24,28 @@ async def evaluate_single_prompt(
     sources = []
     loop = asyncio.get_running_loop()
 
+    # 1. Prepare an "Informed" prompt for the model being tested
+    # Instead of just the raw prompt, we give the model context about the company being audited
+    # to trigger its internal knowledge and search grounding more effectively.
+    # RAW QUERY: We use the exact text the user would type. 
+    # This provides the most realistic 'GEO' audit.
+    raw_query = gen_prompt.prompt_text
+
+    response_text = ""
+    sources = []
+    loop = asyncio.get_running_loop()
+
     # 1. Get raw AI response
     try:
         # We now use the unified ai_client for EVERY provider
         # Gemini will automatically include search grounding if tools are configured in ai_client
         raw_ai_result = await loop.run_in_executor(
             None, 
+<<<<<<< HEAD
             partial(generate_ai_response, gen_prompt.prompt_text, provider=provider, return_full_response=True)
+=======
+            partial(generate_ai_response, raw_query, provider=provider, use_search=use_google_search)
+>>>>>>> 6b9e848 (Fix GEO Authority scoring: Implement strict unbiased rank-based evaluation and fix batch audit crashes)
         )
 
         # Handle different return types (Gemini returns a response object, others return string)
@@ -69,9 +84,9 @@ async def evaluate_single_prompt(
         for url in unique_urls:
             clean_url = url.rstrip(').,;!?')
             if clean_url and clean_url not in existing_urls:
-                # Catch specific reference labels if possible, otherwise generic
+                # Better Labeling from your snippet
                 title = f"Reference found in response"
-                if "anthropic" in provider.lower() or "claude" in provider.lower():
+                if "openrouter" in provider.lower() or "claude" in provider.lower():
                     title = f"Claude Reference"
                 elif "cerebras" in provider.lower():
                     title = f"Cerebras Source"
@@ -111,7 +126,7 @@ async def evaluate_single_prompt(
     eval_provider = "cerebras" if cerebras_client else "gemini"
     
     eval_prompt = f"""
-You are an AI Search Visibility Auditor focusing on the {company.region} market. Analyze the "Model Response" provided below to see how "{company.company_name}" is positioned within this specific regional context.
+You are a Senior AI Search Visibility Auditor focusing on the {company.region} market. Analyze the "Model Response" provided below to see how "{company.company_name}" is positioned within this specific regional and industry context.
 
 Model Response:
 \"\"\"
@@ -216,30 +231,71 @@ async def evaluate_visibility(company: CompanyUnderstanding, prompts: List[Gener
     print(f"[INFO] Completed parallel evaluation.")
 
     # 3. Calculate Overall Visibility Score and Competitor Insights
-    mentions = sum(1 for r in model_results if r.evaluation.brand_present)
-    avg_accuracy = sum(r.evaluation.accuracy_score for r in model_results) / len(model_results) if model_results else 0
     
-    overall_score = (mentions / len(prompts) * 70) + (avg_accuracy * 30) if prompts else 0
+    # STRICT rank-based scoring system
+    # Max score per prompt is 100.
+    total_score = 0
+    mentions = 0
+    
+    if model_results:
+        for r in model_results:
+            prompt_score = 0
+            if r.evaluation.brand_present:
+                mentions += 1
+                
+                rank = r.evaluation.recommendation_rank
+                if rank:
+                    if rank == 1: prompt_score = 100    # Perfect visibility
+                    elif rank == 2: prompt_score = 80   # Strong visibility
+                    elif rank == 3: prompt_score = 60   # Good visibility
+                    elif rank <= 5: prompt_score = 40   # Present in top half
+                    else: prompt_score = 25            # Mentioned but buried
+                else:
+                    # Mentioned in text but not in a recommendation list
+                    prompt_score = 15
+                
+                # Accuracy Penalty: If the AI hallucinates or gets details wrong, penalize the visibility
+                # because "wrong visibility" is often worse than no visibility in GEO.
+                prompt_score *= (0.5 + (r.evaluation.accuracy_score * 0.5))
+            
+            total_score += prompt_score
+            
+        overall_score = total_score / len(model_results)
+    else:
+        overall_score = 0
+    
+    avg_accuracy = sum(r.evaluation.accuracy_score for r in model_results) / len(model_results) if model_results else 0
 
-    # Aggregate competitor info
-    comp_ranks = {}
+    # Aggregate competitor info - Fix: Count ALL mentions
+    comp_stats = {} # name -> {mentions: int, ranks: []}
     for r in model_results:
+        # Count from the simple list
+        for name in r.evaluation.competitors_mentioned:
+            if name not in comp_stats:
+                comp_stats[name] = {"mentions": 0, "ranks": []}
+            comp_stats[name]["mentions"] += 1
+            
+        # Also grab ranks from the structured list
         for c in r.evaluation.competitor_ranks:
-            if c.name not in comp_ranks:
-                comp_ranks[c.name] = []
-            if c.rank is not None:
-                comp_ranks[c.name].append(c.rank)
+            if c.name in comp_stats and c.rank is not None:
+                if c.rank not in comp_stats[c.name]["ranks"]:
+                    comp_stats[c.name]["ranks"].append(c.rank)
     
     competitor_summary = []
-    for name, ranks in comp_ranks.items():
-        avg_rank = sum(ranks) / len(ranks) if ranks else "N/A"
-        competitor_summary.append(f"{name}: Appearances={len(ranks)}, Avg Rank={avg_rank}")
+    # Sort by mentions
+    sorted_comps = sorted(comp_stats.items(), key=lambda x: x[1]["mentions"], reverse=True)
+    
+    for name, stats in sorted_comps:
+        avg_rank = sum(stats["ranks"]) / len(stats["ranks"]) if stats["ranks"] else "N/A"
+        if isinstance(avg_rank, float):
+            avg_rank = round(avg_rank, 1)
+        competitor_summary.append(f"{name}: Appearances={stats['mentions']}, Avg Rank={avg_rank}")
 
     # 4. Generate AI-driven Summary & Tips
     key_findings = [
         f"Brand mention rate: {mentions}/{len(prompts)}",
         f"Average information accuracy: {round(avg_accuracy * 100, 1)}%",
-        f"Total competitors identified: {len(comp_ranks)}"
+        f"Total competitors identified: {len(comp_stats)}"
     ]
     optimizer_tips = []
 
@@ -252,7 +308,7 @@ You are a Senior GEO (Generative Engine Optimization) Strategist focusing on the
 Company Context: {company.company_summary}
 Performance: {mentions}/{len(prompts)} mentions, {round(avg_accuracy*100)}% accuracy.
 Focus Region: {company.region}
-Competitors: {", ".join(list(comp_ranks.keys())[:5])}
+Competitors: {", ".join(list(comp_stats.keys())[:5])}
 
 Instructions:
 1. Provide 3-4 specific 'key_findings' about their current AI visibility.

@@ -56,7 +56,7 @@ async def analyze_company(request: AnalysisRequest):
         clean = clean_text(raw_text)
         chunks = chunk_text(clean)
         
-        company_profile = summarize_company(chunks, manual_points=request.points, region=request.region)
+        company_profile = summarize_company(chunks, manual_points=request.points, region=request.region, url=request.url)
         prompts = generate_user_prompts(company_profile)
         
         return AnalysisResponse(

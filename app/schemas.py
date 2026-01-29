@@ -11,6 +11,7 @@ class CompanyUnderstanding(BaseModel):
     target_users: List[str] = Field(default_factory=list)
     core_problems_solved: List[str] = Field(default_factory=list)
     manual_points: Optional[str] = None
+    url: str = Field("", description="Company website URL")
     region: str = Field("Global", description="Target region for analysis")
 
 class GeneratedPrompt(BaseModel):

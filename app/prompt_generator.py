@@ -59,18 +59,30 @@ Requirements:
         if not isinstance(data, list):
             # If still a dict but didn't find a list key, try to use values if they are lists
             if isinstance(data, dict):
-                for val in data.values():
-                    if isinstance(val, list):
-                        data = val
-                        break
+                # Another check: maybe it's a dict where keys are the categories?
+                # Or maybe it's just a dict that WE can convert to Model objects
+                if "prompt_text" in data:
+                    data = [data]
+                else:
+                    for val in data.values():
+                        if isinstance(val, list) and len(val) > 0 and isinstance(val[0], dict) and "prompt_text" in val[0]:
+                            data = val
+                            break
             
             if not isinstance(data, list):
-                raise ValueError("AI did not return a list of prompts")
+                print(f"[DEBUG] Raw AI response for prompts: {res_text[:500]}...")
+                raise ValueError(f"AI did not return a list of prompts. Got type: {type(data)}")
 
+<<<<<<< HEAD
         return [GeneratedPrompt(**item) for item in data[:10]]
+=======
+        return [GeneratedPrompt(**item) for item in data[:20] if isinstance(item, dict) and "prompt_text" in item]
+>>>>>>> 6b9e848 (Fix GEO Authority scoring: Implement strict unbiased rank-based evaluation and fix batch audit crashes)
     
     except Exception as e:
         print(f"[ERROR] Prompt generation failed: {e}")
+        import traceback
+        traceback.print_exc()
         # Return a smaller fallback list if fails
         fallback_queries = [
             f"Top companies in {company.industry}",

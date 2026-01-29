@@ -152,11 +152,11 @@ export default function Home() {
         });
 
         if (!response.ok) throw new Error(`Batch ${checkType} failed`);
-        const report = await response.json();
+        const reportData = await response.json();
 
         // Map results back to prompt IDs based on index
         const newResults = {};
-        report.model_results.forEach((res, idx) => {
+        reportData.model_results.forEach((res, idx) => {
           if (prompts[idx]) {
             newResults[prompts[idx].id] = res;
           }
@@ -166,24 +166,43 @@ export default function Home() {
         else if (checkType === 'oss') setOssEvalResults(prev => ({ ...prev, ...newResults }));
         else setEvalResults(prev => ({ ...prev, ...newResults }));
 
+        return reportData;
       } catch (err) {
         console.error(err);
         addToast(`Batch evaluation failed for ${checkType}`, "error");
+        return null;
       } finally {
         updateLoading(false);
       }
     };
 
     // Trigger all 3 batches in parallel
-    // 1. Gemini Standard
-    // 2. OpenRouter (Claude/OSS)
-    // 3. Google Search Grounding
     addToast("🚀 Dispatching parallel batch requests...", "info");
-    Promise.allSettled([
+    const [standardRes, ossRes, googleRes] = await Promise.all([
       runBatch('gemini', 'standard'),
       runBatch('openrouter', 'oss'),
       runBatch('gemini', 'google')
     ]);
+
+    // Calculate composite report if we have results
+    const validReports = [standardRes, ossRes, googleRes].filter(r => r !== null);
+    if (validReports.length > 0) {
+      const avgScore = validReports.reduce((acc, r) => acc + r.overall_score, 0) / validReports.length;
+
+      // Use the 'standard' report as base for findings/tips, but update the score to the composite
+      // Prefer Google Search findings if available as they are grounded
+      const baseReport = googleRes || standardRes || validReports[0];
+
+      const compositeReport = {
+        ...baseReport,
+        overall_score: Math.round(avgScore * 10) / 10,
+        is_composite: true,
+        provider_count: validReports.length
+      };
+
+      setReport(compositeReport);
+      addToast(`✅ Composite Audit Complete! Score: ${compositeReport.overall_score}`, "success");
+    }
   };
 
   const handleEvaluatePrompt = async (prompt, promptId, checkType = 'standard') => {
@@ -325,40 +344,8 @@ export default function Home() {
 
   const handleEvaluateAll = async () => {
     setEvaluatingAll(true);
-    addToast("Starting Full Visibility Audit...", "info");
     try {
-      const response = await fetch(`${API_BASE_URL}/evaluate-all`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          company_profile: result.company_profile,
-          prompts: result.prompts,
-          provider: 'gemini'
-        }),
-      });
-
-      if (!response.ok) {
-        let errorMessage = 'Full report failed';
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.detail || errorMessage;
-        } catch {
-          errorMessage = `Full report failed: ${response.status} ${response.statusText}`;
-        }
-        throw new Error(errorMessage);
-      }
-
-      const data = await response.json();
-      setReport(data);
-
-      // Sync results back to individual states so the grid UI shows they were checked
-      const newResults = {};
-      data.model_results.forEach((res, i) => {
-        newResults[i] = res;
-      });
-      setEvalResults(newResults);
-
-      addToast("✅ Full audit complete! Score: " + data.overall_score + "/100", "success");
+      await handleBatchEvaluate(result.prompts, result.company_profile);
     } catch (err) {
       console.error('Full audit error:', err);
       addToast("❌ Full audit failed: " + err.message, "error");
@@ -400,7 +387,7 @@ export default function Home() {
 
       <div className="input-group">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Company Website</label>
+          <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b' }}>Company Website</label>
           <input
             type="text"
             placeholder="https://example.com"
@@ -410,7 +397,7 @@ export default function Home() {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Manual Points (Optional)</label>
+          <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b' }}>Manual Points (Optional)</label>
           <textarea
             placeholder="Key offerings, unique selling points, or target audience..."
             rows={4}
@@ -421,7 +408,7 @@ export default function Home() {
 
         <div style={{ display: 'flex', gap: '16px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
-            <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Target Region</label>
+            <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b' }}>Target Region</label>
             <select
               value={region}
               onChange={(e) => setRegion(e.target.value)}
@@ -436,7 +423,7 @@ export default function Home() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
-            <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a1a1aa' }}>Prompt Generation Model</label>
+            <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b' }}>Prompt Generation Model</label>
             <select
               value={provider}
               onChange={(e) => setProvider(e.target.value)}
@@ -444,7 +431,7 @@ export default function Home() {
               <option value="gemini">Gemini</option>
               {/* Future: Add more generation models here */}
             </select>
-            <p style={{ fontSize: '0.65rem', color: '#666', marginTop: '4px' }}>Model used to create the test questions. Audit always checks ALL 3.</p>
+            <p style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '4px' }}>Model used to create the test questions. Audit always checks ALL 3.</p>
           </div>
         </div>
 
@@ -466,7 +453,7 @@ export default function Home() {
               <div className="company-name">{result.company_name}</div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                 <div className="industry-badge">{result.industry}</div>
-                <div className="industry-badge" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--primary-light)' }}>🌍 {result.company_profile.region}</div>
+                <div className="industry-badge" style={{ background: '#f1f5f9', color: 'var(--primary)' }}>🌍 {result.company_profile.region}</div>
               </div>
             </div>
             <button
@@ -483,7 +470,7 @@ export default function Home() {
               <h2 style={{ fontSize: '1.5rem', color: 'var(--accent)', marginBottom: '16px' }}>
                 ✅ Full Visibility Audit Complete!
               </h2>
-              <p style={{ color: '#a1a1aa', marginBottom: '24px', fontSize: '1rem' }}>
+              <p style={{ color: '#64748b', marginBottom: '24px', fontSize: '1rem' }}>
                 Your comprehensive report is ready with a score of <span style={{ color: 'var(--accent)', fontWeight: 'bold' }}>{report.overall_score}/100</span>
               </p>
               <button
@@ -504,8 +491,8 @@ export default function Home() {
             </div>
           )}
 
-          <div style={{ marginBottom: '32px', background: 'rgba(255,255,255,0.03)', padding: '24px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '16px', color: 'var(--primary-light)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ marginBottom: '32px', background: '#f8fafc', padding: '24px', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '16px', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span>⚡</span> Test Your Own Prompt
             </h3>
             <div style={{ display: 'flex', gap: '12px' }}>
@@ -517,13 +504,13 @@ export default function Home() {
                 onKeyDown={(e) => e.key === 'Enter' && handleAddManualPrompt()}
                 style={{ flex: 1 }}
               />
-              <button onClick={handleAddManualPrompt} className="secondary-btn" style={{ whiteSpace: 'nowrap', background: 'var(--primary)', borderColor: 'var(--primary)' }}>
+              <button onClick={handleAddManualPrompt} className="secondary-btn" style={{ whiteSpace: 'nowrap', background: 'var(--primary)', borderColor: 'var(--primary)', color: 'white' }}>
                 + Add Prompt
               </button>
               <button
                 onClick={() => setShowBulkImport(!showBulkImport)}
                 className="secondary-btn"
-                style={{ whiteSpace: 'nowrap', background: 'rgba(255,255,255,0.05)' }}
+                style={{ whiteSpace: 'nowrap' }}
               >
                 {showBulkImport ? 'Cancel Bulk' : 'Bulk Import'}
               </button>
@@ -538,7 +525,7 @@ export default function Home() {
                   onChange={(e) => setBulkPromptText(e.target.value)}
                   style={{ width: '100%', marginBottom: '12px' }}
                 />
-                <button onClick={handleBulkImport} className="secondary-btn" style={{ background: 'var(--accent)', border: 'none' }}>
+                <button onClick={handleBulkImport} className="secondary-btn" style={{ background: 'var(--accent)', border: 'none', color: 'white' }}>
                   Import Prompts
                 </button>
               </div>
@@ -548,7 +535,7 @@ export default function Home() {
           <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
             <div>
               <h3 style={{ fontSize: '1.25rem', marginBottom: '8px' }}>Suggested AI Test Prompts</h3>
-              <p style={{ color: '#a1a1aa' }}>Use these prompts to see how AI models perceive your brand.</p>
+              <p style={{ color: '#64748b' }}>Use these prompts to see how AI models perceive your brand.</p>
             </div>
             <button
               className="secondary-btn"
@@ -574,13 +561,13 @@ export default function Home() {
                 <p className="prompt-text">"{p.prompt_text}"</p>
 
                 <div
-                  style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.05)' }}
+                  style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid #f1f5f9' }}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <button
                     onClick={() => handleEvaluateAllModels(p, p.id)}
                     className="secondary-btn"
-                    style={{ width: '100%', marginBottom: '12px', fontSize: '0.8rem', padding: '12px', background: 'var(--primary)', border: 'none' }}
+                    style={{ width: '100%', marginBottom: '12px', fontSize: '0.8rem', padding: '12px', background: 'var(--primary)', border: 'none', color: 'white' }}
                     disabled={evaluating[p.id] || evaluatingOSS[p.id] || evaluatingGoogle[p.id]}
                   >
                     🚀 Run Comparative Audit
@@ -590,13 +577,13 @@ export default function Home() {
                     <button
                       onClick={() => handleEvaluatePrompt(p, p.id, 'google')}
                       disabled={evaluatingGoogle[p.id]}
-                      style={{ flex: 1, padding: '8px', fontSize: '0.7rem', background: googleEvalResults[p.id] ? 'rgba(34, 197, 94, 0.4)' : 'var(--accent)', color: 'white' }}
+                      style={{ flex: 1, padding: '8px', fontSize: '0.7rem', background: googleEvalResults[p.id] ? '#dcfce7' : 'var(--accent)', color: googleEvalResults[p.id] ? '#15803d' : 'white', border: googleEvalResults[p.id] ? '1px solid #bbf7d0' : 'none' }}
                     >
                       {evaluatingGoogle[p.id] ? '...' : (googleEvalResults[p.id] ? 'Google Search ✓' : 'Google Search Check')}
                     </button>
                     {/* Minimalist individual rerun buttons */}
-                    <button onClick={() => handleEvaluatePrompt(p, p.id, 'standard')} style={{ padding: '8px', width: '40px', background: 'rgba(255,255,255,0.05)', fontSize: '0.7rem' }}>G</button>
-                    <button onClick={() => handleEvaluatePrompt(p, p.id, 'oss')} style={{ padding: '8px', width: '40px', background: 'rgba(255,255,255,0.05)', fontSize: '0.7rem' }}>O</button>
+                    <button onClick={() => handleEvaluatePrompt(p, p.id, 'standard')} style={{ padding: '8px', width: '40px', background: '#f1f5f9', color: '#64748b', fontSize: '0.7rem' }}>G</button>
+                    <button onClick={() => handleEvaluatePrompt(p, p.id, 'oss')} style={{ padding: '8px', width: '40px', background: '#f1f5f9', color: '#64748b', fontSize: '0.7rem' }}>O</button>
                   </div>
 
                   {/* References Section */}
@@ -610,7 +597,7 @@ export default function Home() {
                     if (allSources.length === 0) return null;
 
                     return (
-                      <div className="references-section" style={{ marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px' }} onClick={(e) => e.stopPropagation()}>
+                      <div className="references-section" style={{ marginTop: '12px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }} onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -621,7 +608,7 @@ export default function Home() {
                             width: '100%',
                             fontSize: '0.75rem',
                             padding: '8px',
-                            background: 'rgba(255,255,255,0.02)',
+                            background: '#f8fafc',
                             display: 'flex',
                             justifyContent: 'space-between'
                           }}
@@ -639,16 +626,16 @@ export default function Home() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="source-item"
-                                style={{ fontSize: '0.7rem', padding: '8px' }}
+                                style={{ fontSize: '0.7rem', padding: '12px' }}
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                                  <span style={{ fontWeight: 600, color: source.provider === 'Claude' ? '#ff6b00' : source.provider === 'Google AI' ? 'var(--accent)' : 'var(--primary-light)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                  <span style={{ fontWeight: 700, color: source.provider === 'Claude' ? '#c2410c' : source.provider === 'Google AI' ? 'var(--accent)' : 'var(--primary)' }}>
                                     {source.provider}
                                   </span>
                                 </div>
-                                <div style={{ color: '#e2e8f0' }}>{source.title || 'Cited Resource'}</div>
-                                <span className="source-url" style={{ fontSize: '0.65rem' }}>{source.url}</span>
+                                <div style={{ color: '#1e293b', fontWeight: 500 }}>{source.title || 'Cited Resource'}</div>
+                                <span className="source-url" style={{ fontSize: '0.65rem', color: '#64748b' }}>{source.url}</span>
                               </a>
                             ))}
                           </div>
@@ -659,23 +646,23 @@ export default function Home() {
                 </div>
 
                 {(evalResults[p.id] || googleEvalResults[p.id] || ossEvalResults[p.id]) && (
-                  <div className="eval-result-box" style={{ animation: 'fadeIn 0.3s ease', padding: '12px', fontSize: '0.8rem', background: 'rgba(0,0,0,0.2)', borderRadius: '12px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div className="eval-result-box" style={{ animation: 'fadeIn 0.3s ease', padding: '16px', fontSize: '0.8rem', background: '#f8fafc', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ color: '#a1a1aa', fontSize: '0.7rem' }}>Gemini Rank:</span>
-                        <span className={`rank-badge ${evalResults[p.id]?.evaluation?.recommendation_rank ? '' : 'missing'}`} style={{ fontSize: '0.8rem', padding: '2px 8px' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.75rem', fontWeight: 500 }}>Gemini Rank:</span>
+                        <span className={`rank-badge ${evalResults[p.id]?.evaluation?.recommendation_rank ? '' : 'missing'}`} style={{ fontSize: '0.8rem', padding: '4px 10px' }}>
                           {evalResults[p.id]?.evaluation?.recommendation_rank || 'N/A'}
                         </span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ color: '#a1a1aa', fontSize: '0.7rem' }}>Claude Rank:</span>
-                        <span className={`rank-badge ${ossEvalResults[p.id]?.evaluation?.recommendation_rank ? '' : 'missing'}`} style={{ fontSize: '0.8rem', padding: '2px 8px', background: 'rgba(255, 107, 0, 0.2)', color: '#ff6b00' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.75rem', fontWeight: 500 }}>Claude Rank:</span>
+                        <span className={`rank-badge ${ossEvalResults[p.id]?.evaluation?.recommendation_rank ? '' : 'missing'}`} style={{ fontSize: '0.8rem', padding: '4px 10px', background: '#ffedd5', color: '#c2410c' }}>
                           {ossEvalResults[p.id]?.evaluation?.recommendation_rank || 'N/A'}
                         </span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ color: '#a1a1aa', fontSize: '0.7rem' }}>Google Rank:</span>
-                        <span className={`rank-badge ${googleEvalResults[p.id]?.evaluation?.recommendation_rank ? '' : 'missing'}`} style={{ fontSize: '0.8rem', padding: '2px 8px' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.75rem', fontWeight: 500 }}>Google Rank:</span>
+                        <span className={`rank-badge ${googleEvalResults[p.id]?.evaluation?.recommendation_rank ? '' : 'missing'}`} style={{ fontSize: '0.8rem', padding: '4px 10px' }}>
                           {googleEvalResults[p.id]?.evaluation?.recommendation_rank || 'N/A'}
                         </span>
                       </div>
@@ -693,35 +680,35 @@ export default function Home() {
         hoveredDetail && !selectedDetail && (
           <div className="hover-detail-panel" style={{ animation: 'slideRight 0.4s cubic-bezier(0.4, 0, 0.2, 1)' }}>
             <div className="modal-section">
-              <span className="modal-label">Quick Preview: {hoveredDetail.intent_category}</span>
-              <p className="modal-text" style={{ fontStyle: 'italic', fontSize: '0.9rem', color: '#a1a1aa' }}>"{hoveredDetail.prompt_text}"</p>
+              <span className="modal-label" style={{ color: 'var(--primary)' }}>Quick Preview: {hoveredDetail.intent_category}</span>
+              <p className="modal-text" style={{ fontStyle: 'italic', fontSize: '0.95rem', color: '#334155', fontWeight: 500 }}>"{hoveredDetail.prompt_text}"</p>
             </div>
 
-            <div className="modal-section" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '20px' }}>
+            <div className="modal-section" style={{ borderTop: '1px solid #f1f5f9', paddingTop: '20px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 <div>
-                  <span className="modal-label" style={{ color: 'var(--primary-light)' }}>Gemini</span>
+                  <span className="modal-label" style={{ color: 'var(--primary)' }}>Gemini Output</span>
                   {evalResults[hoveredDetail.promptId] ? (
-                    <div className="response-full" style={{ padding: '12px', fontSize: '0.8rem', maxHeight: '150px', overflowY: 'auto' }}>
+                    <div className="response-full" style={{ padding: '16px', fontSize: '0.85rem', maxHeight: '150px', overflowY: 'auto' }}>
                       {evalResults[hoveredDetail.promptId].response_text}
                     </div>
-                  ) : <p style={{ fontSize: '0.75rem', color: '#666' }}>Not analyzed</p>}
+                  ) : <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Not analyzed</p>}
                 </div>
                 <div>
-                  <span className="modal-label" style={{ color: '#ff6b00' }}>Claude</span>
+                  <span className="modal-label" style={{ color: '#c2410c' }}>Claude Output</span>
                   {ossEvalResults[hoveredDetail.promptId] ? (
-                    <div className="response-full" style={{ padding: '12px', fontSize: '0.8rem', borderLeft: '2px solid #ff6b00', maxHeight: '150px', overflowY: 'auto' }}>
+                    <div className="response-full" style={{ padding: '16px', fontSize: '0.85rem', borderLeft: '3px solid #f97316', background: '#fff7ed', maxHeight: '150px', overflowY: 'auto' }}>
                       {ossEvalResults[hoveredDetail.promptId].response_text}
                     </div>
-                  ) : <p style={{ fontSize: '0.75rem', color: '#666' }}>Not analyzed</p>}
+                  ) : <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Not analyzed</p>}
                 </div>
                 <div>
-                  <span className="modal-label" style={{ color: 'var(--accent)' }}>Google AI Search</span>
+                  <span className="modal-label" style={{ color: 'var(--accent)' }}>Google AI Search Output</span>
                   {googleEvalResults[hoveredDetail.promptId] ? (
-                    <div className="response-full" style={{ padding: '12px', fontSize: '0.8rem', borderLeft: '2px solid var(--accent)', maxHeight: '150px', overflowY: 'auto' }}>
+                    <div className="response-full" style={{ padding: '16px', fontSize: '0.85rem', borderLeft: '3px solid var(--accent)', background: '#f0fdfa', maxHeight: '150px', overflowY: 'auto' }}>
                       {googleEvalResults[hoveredDetail.promptId].response_text}
                     </div>
-                  ) : <p style={{ fontSize: '0.75rem', color: '#666' }}>Not analyzed</p>}
+                  ) : <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Not analyzed</p>}
                 </div>
               </div>
             </div>
@@ -736,27 +723,27 @@ export default function Home() {
               <button className="close-btn" onClick={() => { setSelectedDetail(null); setShowDetails(false); }}>&times;</button>
 
               <div className="modal-section">
-                <span className="modal-label">Detailed Analysis: {selectedDetail.intent_category}</span>
-                <p className="modal-text" style={{ fontStyle: 'italic', fontSize: '1.2rem' }}>"{selectedDetail.prompt_text}"</p>
+                <span className="modal-label" style={{ color: 'var(--primary)' }}>Detailed Analysis: {selectedDetail.intent_category}</span>
+                <p className="modal-text" style={{ fontStyle: 'italic', fontSize: '1.4rem', fontWeight: 600, color: '#0f172a' }}>"{selectedDetail.prompt_text}"</p>
               </div>
 
-              <div className="modal-section" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '24px' }}>
+              <div className="modal-section" style={{ borderTop: '1px solid #f1f5f9', paddingTop: '32px' }}>
                 {/* LAYER 1: Executive Summary & Leaderboard */}
-                <div className="summary-container" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '20px' }}>
+                <div className="summary-container" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '24px' }}>
                   {/* Gemini Summary */}
                   <div className="summary-card">
-                    <div className="stat-header">
-                      <span className="modal-label" style={{ marginBottom: 0 }}>Gemini Summary</span>
+                    <div className="stat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                      <span className="modal-label" style={{ marginBottom: 0, color: 'var(--primary)' }}>Gemini Summary</span>
                       {evalResults[selectedDetail.promptId] ? (
                         <span className={`rank-badge ${evalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank ? '' : 'missing'}`}>
                           Rank: {evalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank || 'N/A'}
                         </span>
-                      ) : <span style={{ fontSize: '0.7rem', color: '#666' }}>Pending Check</span>}
+                      ) : <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Pending Check</span>}
                     </div>
 
                     {evalResults[selectedDetail.promptId] && (
                       <>
-                        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', fontSize: '0.8rem', color: '#a1a1aa' }}>
+                        <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
                           <div style={{ display: 'flex', alignItems: 'center' }}>
                             <span className={`sentiment-dot sentiment-${evalResults[selectedDetail.promptId].evaluation.sentiment}`} />
                             {evalResults[selectedDetail.promptId].evaluation.sentiment}
@@ -764,88 +751,88 @@ export default function Home() {
                           <div>Accuracy: {Math.round(evalResults[selectedDetail.promptId].evaluation.accuracy_score * 100)}%</div>
                         </div>
                         <div className="leaderboard-box">
-                          <span className="modal-label" style={{ fontSize: '0.65rem' }}>Market Leaders</span>
+                          <span className="modal-label" style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Market Leaders</span>
                           {evalResults[selectedDetail.promptId]?.evaluation?.competitor_ranks?.length > 0 ? (
                             evalResults[selectedDetail.promptId].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
                               <div key={idx} className="leaderboard-item">
-                                <span className="rank-number">#{comp.rank || (idx + 1)}</span>
-                                <span className="leader-name">{comp.name}</span>
-                                {comp.url_cited && <span style={{ fontSize: '0.7rem' }}>🔗</span>}
+                                <span className="rank-number" style={{ color: 'var(--primary)', fontWeight: 700 }}>#{comp.rank || (idx + 1)}</span>
+                                <span className="leader-name" style={{ fontWeight: 500 }}>{comp.name}</span>
+                                {comp.url_cited && <span style={{ fontSize: '0.8rem' }}>🔗</span>}
                               </div>
                             ))
-                          ) : <p style={{ fontSize: '0.8rem', color: '#666' }}>No competitors cited.</p>}
+                          ) : <p style={{ fontSize: '0.85rem', color: '#94a3b8', fontStyle: 'italic' }}>No competitors cited.</p>}
                         </div>
                       </>
                     )}
                   </div>
 
                   {/* GPT-OSS Summary */}
-                  <div className="summary-card" style={{ borderColor: '#ff6b00' }}>
-                    <div className="stat-header">
-                      <span className="modal-label" style={{ color: '#ff6b00', marginBottom: 0 }}>Claude Summary</span>
+                  <div className="summary-card" style={{ borderColor: '#fed7aa', background: '#fffaf5' }}>
+                    <div className="stat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                      <span className="modal-label" style={{ color: '#c2410c', marginBottom: 0 }}>Claude Summary</span>
                       {ossEvalResults[selectedDetail.promptId] ? (
-                        <span className={`rank-badge`} style={{ background: 'rgba(255, 107, 0, 0.2)', color: '#ff6b00' }}>
+                        <span className={`rank-badge`} style={{ background: '#ffedd5', color: '#c2410c' }}>
                           Rank: {ossEvalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank || 'N/A'}
                         </span>
-                      ) : <span style={{ fontSize: '0.7rem', color: '#666' }}>Pending Check</span>}
+                      ) : <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Pending Check</span>}
                     </div>
 
                     {ossEvalResults[selectedDetail.promptId] && (
                       <>
-                        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', fontSize: '0.8rem', color: '#a1a1aa' }}>
+                        <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', fontSize: '0.85rem', color: '#9a3412', fontWeight: 500 }}>
                           <div style={{ display: 'flex', alignItems: 'center' }}>
                             <span className={`sentiment-dot sentiment-${ossEvalResults[selectedDetail.promptId].evaluation.sentiment}`} />
                             {ossEvalResults[selectedDetail.promptId].evaluation.sentiment}
                           </div>
                           <div>Accuracy: {Math.round(ossEvalResults[selectedDetail.promptId].evaluation.accuracy_score * 100)}%</div>
                         </div>
-                        <div className="leaderboard-box">
-                          <span className="modal-label" style={{ fontSize: '0.65rem', color: '#ff6b00' }}>Market Leaders</span>
+                        <div className="leaderboard-box" style={{ background: 'white' }}>
+                          <span className="modal-label" style={{ fontSize: '0.65rem', color: '#c2410c' }}>Market Leaders</span>
                           {ossEvalResults[selectedDetail.promptId]?.evaluation?.competitor_ranks?.length > 0 ? (
                             ossEvalResults[selectedDetail.promptId].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
                               <div key={idx} className="leaderboard-item">
-                                <span className="rank-number" style={{ color: '#ff6b00' }}>#{comp.rank || (idx + 1)}</span>
-                                <span className="leader-name">{comp.name}</span>
-                                {comp.url_cited && <span style={{ fontSize: '0.7rem' }}>🔗</span>}
+                                <span className="rank-number" style={{ color: '#f97316', fontWeight: 700 }}>#{comp.rank || (idx + 1)}</span>
+                                <span className="leader-name" style={{ fontWeight: 500 }}>{comp.name}</span>
+                                {comp.url_cited && <span style={{ fontSize: '0.8rem' }}>🔗</span>}
                               </div>
                             ))
-                          ) : <p style={{ fontSize: '0.8rem', color: '#666' }}>No competitors cited.</p>}
+                          ) : <p style={{ fontSize: '0.85rem', color: '#94a3b8', fontStyle: 'italic' }}>No competitors cited.</p>}
                         </div>
                       </>
                     )}
                   </div>
 
                   {/* Google Summary */}
-                  <div className="summary-card" style={{ borderColor: 'var(--accent)' }}>
-                    <div className="stat-header">
+                  <div className="summary-card" style={{ borderColor: '#99f6e4', background: '#f0fdfa' }}>
+                    <div className="stat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                       <span className="modal-label" style={{ color: 'var(--accent)', marginBottom: 0 }}>Google AI Search</span>
                       {googleEvalResults[selectedDetail.promptId] ? (
                         <span className={`rank-badge ${googleEvalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank ? '' : 'missing'}`}>
                           Rank: {googleEvalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank || 'N/A'}
                         </span>
-                      ) : <span style={{ fontSize: '0.7rem', color: '#666' }}>Pending Search</span>}
+                      ) : <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Pending Search</span>}
                     </div>
 
                     {googleEvalResults[selectedDetail.promptId] && (
                       <>
-                        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', fontSize: '0.8rem', color: '#a1a1aa' }}>
+                        <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', fontSize: '0.85rem', color: '#0d9488', fontWeight: 500 }}>
                           <div style={{ display: 'flex', alignItems: 'center' }}>
                             <span className={`sentiment-dot sentiment-${googleEvalResults[selectedDetail.promptId].evaluation.sentiment}`} />
                             {googleEvalResults[selectedDetail.promptId].evaluation.sentiment}
                           </div>
                           <div>Accuracy: {Math.round(googleEvalResults[selectedDetail.promptId].evaluation.accuracy_score * 100)}%</div>
                         </div>
-                        <div className="leaderboard-box">
+                        <div className="leaderboard-box" style={{ background: 'white' }}>
                           <span className="modal-label" style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>Search Dominance</span>
                           {googleEvalResults[selectedDetail.promptId]?.evaluation?.competitor_ranks?.length > 0 ? (
                             googleEvalResults[selectedDetail.promptId].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
                               <div key={idx} className="leaderboard-item">
-                                <span className="rank-number" style={{ color: 'var(--accent)' }}>#{comp.rank || (idx + 1)}</span>
-                                <span className="leader-name">{comp.name}</span>
-                                {comp.url_cited && <span style={{ fontSize: '0.7rem' }}>🔗</span>}
+                                <span className="rank-number" style={{ color: 'var(--accent)', fontWeight: 700 }}>#{comp.rank || (idx + 1)}</span>
+                                <span className="leader-name" style={{ fontWeight: 500 }}>{comp.name}</span>
+                                {comp.url_cited && <span style={{ fontSize: '0.8rem' }}>🔗</span>}
                               </div>
                             ))
-                          ) : <p style={{ fontSize: '0.8rem', color: '#666' }}>No external leaders found.</p>}
+                          ) : <p style={{ fontSize: '0.85rem', color: '#94a3b8', fontStyle: 'italic' }}>No external leaders found.</p>}
                         </div>
                       </>
                     )}
@@ -858,21 +845,21 @@ export default function Home() {
                     {showDetails ? '▲ Hide Technical Reasoning' : '▼ Explore Detailed AI Reasoning & Full Output'}
                   </button>
                 ) : (
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.promptId, 'standard')} style={{ flex: 1 }}>Run Gemini</button>
-                    <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.promptId, 'oss')} style={{ flex: 1, background: '#ff6b00', border: 'none' }}>Run Claude</button>
-                    <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.promptId, 'google')} style={{ flex: 1, background: 'var(--accent)' }}>Run Google Search</button>
+                  <div style={{ display: 'flex', gap: '16px', marginTop: '24px' }}>
+                    <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.promptId, 'standard')} style={{ flex: 1, padding: '16px', borderRadius: '12px', background: 'var(--primary)', border: 'none', color: 'white', fontWeight: 600 }}>Run Gemini</button>
+                    <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.promptId, 'oss')} style={{ flex: 1, padding: '16px', borderRadius: '12px', background: '#f97316', border: 'none', color: 'white', fontWeight: 600 }}>Run Claude</button>
+                    <button onClick={() => handleEvaluatePrompt(selectedDetail, selectedDetail.promptId, 'google')} style={{ flex: 1, padding: '16px', borderRadius: '12px', background: 'var(--accent)', border: 'none', color: 'white', fontWeight: 600 }}>Run Google Search</button>
                   </div>
                 )}
 
                 {/* LAYER 3: Detailed Output */}
                 <div className={`response-details-container ${showDetails ? 'expanded' : 'collapsed'}`}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '20px', alignItems: 'start' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '24px', alignItems: 'start' }}>
                     {/* Gemini Detailed */}
                     <div>
-                      <span className="modal-label">Gemini Full Text</span>
+                      <span className="modal-label" style={{ color: 'var(--primary)' }}>Gemini Full Transcript</span>
                       {evalResults[selectedDetail.promptId] && (
-                        <div className="response-full" style={{ borderLeft: '2px solid var(--primary)', height: '450px', overflowY: 'auto', wordBreak: 'break-word' }}>
+                        <div className="response-full" style={{ borderLeft: '4px solid var(--primary)', background: '#f8fafc', height: '500px', overflowY: 'auto' }}>
                           <div>{evalResults[selectedDetail.promptId].response_text}</div>
                         </div>
                       )}
@@ -880,9 +867,9 @@ export default function Home() {
 
                     {/* OSS Detailed */}
                     <div>
-                      <span className="modal-label" style={{ color: '#ff6b00' }}>Claude Full Text</span>
+                      <span className="modal-label" style={{ color: '#f97316' }}>Claude Full Transcript</span>
                       {ossEvalResults[selectedDetail.promptId] && (
-                        <div className="response-full" style={{ borderLeft: '2px solid #ff6b00', height: '450px', overflowY: 'auto', wordBreak: 'break-word' }}>
+                        <div className="response-full" style={{ borderLeft: '4px solid #f97316', background: '#fffaf5', height: '500px', overflowY: 'auto' }}>
                           <div>{ossEvalResults[selectedDetail.promptId].response_text}</div>
                         </div>
                       )}
@@ -890,20 +877,20 @@ export default function Home() {
 
                     {/* Google Detailed */}
                     <div>
-                      <span className="modal-label" style={{ color: 'var(--accent)' }}>Google Search Full Text</span>
+                      <span className="modal-label" style={{ color: 'var(--accent)' }}>Google Search Full Transcript</span>
                       {googleEvalResults[selectedDetail.promptId] && (
                         <>
-                          <div className="response-full" style={{ borderLeft: '2px solid var(--accent)', height: '450px', overflowY: 'auto', wordBreak: 'break-word' }}>
+                          <div className="response-full" style={{ borderLeft: '4px solid var(--accent)', background: '#f0fdfa', height: '500px', overflowY: 'auto' }}>
                             <div>{googleEvalResults[selectedDetail.promptId].response_text}</div>
                           </div>
 
                           {googleEvalResults[selectedDetail.promptId].sources && googleEvalResults[selectedDetail.promptId].sources.length > 0 && (
-                            <div className="source-list">
-                              <span className="modal-label" style={{ fontSize: '0.65rem', color: 'var(--accent)', marginTop: '24px' }}>Deep Research Sources</span>
+                            <div className="source-list" style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #e2e8f0' }}>
+                              <span className="modal-label" style={{ fontSize: '0.7rem', color: 'var(--accent)', marginBottom: '16px' }}>Verified Search Citations</span>
                               {googleEvalResults[selectedDetail.promptId].sources.map((source, idx) => (
-                                <a key={idx} href={source.url} target="_blank" rel="noopener noreferrer" className="source-item">
-                                  {source.title}
-                                  <span className="source-url">{source.url}</span>
+                                <a key={idx} href={source.url} target="_blank" rel="noopener noreferrer" className="source-item" style={{ padding: '16px', background: 'white' }}>
+                                  <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: '4px' }}>{source.title}</div>
+                                  <span className="source-url" style={{ color: '#94a3b8' }}>{source.url}</span>
                                 </a>
                               ))}
                             </div>
