@@ -108,34 +108,58 @@ export default function ReferencesView({
                                     rel="noopener noreferrer"
                                     style={{
                                         display: 'block',
-                                        background: '#f8fafc',
-                                        padding: '16px',
-                                        borderRadius: '16px',
+                                        background: 'white',
+                                        padding: '12px 20px',
+                                        borderRadius: '100px',
                                         border: '1px solid #f1f5f9',
                                         textDecoration: 'none',
-                                        transition: 'all 0.2s ease'
+                                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+                                        marginBottom: '8px'
                                     }}
                                     className="reference-item-card"
                                     onMouseOver={(e) => {
-                                        e.currentTarget.style.borderColor = providerName === 'Claude' ? '#fdba74' : providerName === 'Google AI' ? '#86efac' : '#93c5fd';
-                                        e.currentTarget.style.transform = 'translateX(4px)';
+                                        e.currentTarget.style.borderColor = providerName === 'Claude' ? '#ea580c' : providerName === 'Google AI' ? '#16a34a' : '#2563eb';
+                                        e.currentTarget.style.transform = 'scale(1.02)';
+                                        e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0,0,0,0.08)';
                                     }}
                                     onMouseOut={(e) => {
                                         e.currentTarget.style.borderColor = '#f1f5f9';
-                                        e.currentTarget.style.transform = 'translateX(0)';
+                                        e.currentTarget.style.transform = 'scale(1)';
+                                        e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.02)';
                                     }}
                                 >
-                                    <div style={{ fontSize: '0.95rem', color: '#1e293b', fontWeight: 700, marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '85%' }}>
-                                            {ref.title || new URL(ref.url).hostname}
-                                        </span>
-                                        <ExternalLink size={14} style={{ color: '#94a3b8' }} />
-                                    </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
-                                        {ref.url}
-                                    </div>
-                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic', borderTop: '1px solid #f1f5f9', paddingTop: '10px', marginTop: '10px', fontWeight: 500 }}>
-                                        From query: <span style={{ color: '#475569' }}>"{ref.promptText.length > 50 ? ref.promptText.substring(0, 50) + '...' : ref.promptText}"</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                                        <div style={{
+                                            width: '36px',
+                                            height: '36px',
+                                            background: '#f1f5f9',
+                                            borderRadius: '50%',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            flexShrink: 0
+                                        }}>
+                                            {ref.favicon ? (
+                                                <img src={ref.favicon} alt="" style={{ width: '20px', height: '20px', objectFit: 'contain' }}
+                                                    onError={(e) => e.target.style.display = 'none'} />
+                                            ) : <Globe size={18} style={{ color: '#94a3b8' }} />}
+                                        </div>
+
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{
+                                                fontSize: '0.9rem',
+                                                fontWeight: 600,
+                                                color: '#334155',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap'
+                                            }}>
+                                                {ref.title || ref.domain || 'Verified Source'}
+                                            </div>
+                                        </div>
+
+                                        <ExternalLink size={14} style={{ color: '#cbd5e1', flexShrink: 0 }} />
                                     </div>
                                 </a>
                             )) : (

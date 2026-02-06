@@ -8,3 +8,7 @@ fastapi
 uvicorn
 cerebras-cloud-sdk
 openai
+aiohttp
+sqlalchemy
+psycopg2-binary
+passlib[bcrypt]

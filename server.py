@@ -9,7 +9,12 @@ from app.text_cleaner import clean_text, chunk_text
 from app.summarizer import summarize_company
 from app.prompt_generator import generate_user_prompts
 from app.evaluator import evaluate_visibility
-from app.schemas import CompanyUnderstanding, GeneratedPrompt, ModelResponse, VisibilityReport
+from app.database import get_db
+from sqlalchemy.orm import Session
+from fastapi import Depends
+from app.models import User
+from app.auth_utils import get_password_hash, verify_password
+from app.schemas import CompanyUnderstanding, GeneratedPrompt, ModelResponse, VisibilityReport, UserCreate, UserResponse, LoginRequest
 
 app = FastAPI(title="GEO Analytics API")
 
@@ -25,6 +30,49 @@ app.add_middleware(
 @app.get("/")
 def health_check():
     return {"status": "ok", "message": "GEO Analytics API is running"}
+
+@app.post("/signup", response_model=UserResponse)
+def signup(user_data: UserCreate, db: Session = Depends(get_db)):
+    # Check if user already exists
+    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Hash password and create user
+    hashed_pwd = get_password_hash(user_data.password)
+    new_user = User(
+        email=user_data.email,
+        hashed_password=hashed_pwd,
+        full_name=user_data.full_name
+    )
+    
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    # Format created_at for response
+    return {
+        "id": new_user.id,
+        "email": new_user.email,
+        "full_name": new_user.full_name,
+        "created_at": new_user.created_at.isoformat()
+    }
+
+@app.post("/login")
+def login(request: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == request.email).first()
+    if not user or not verify_password(request.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    return {
+        "status": "success",
+        "message": "Login successful",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name
+        }
+    }
 
 class AnalysisRequest(BaseModel):
     url: Optional[str] = ""

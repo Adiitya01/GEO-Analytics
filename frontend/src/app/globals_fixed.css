@@ -197,6 +197,22 @@ button:disabled {
     cursor: not-allowed;
 }
 
+.response-details-container {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+    width: 100%;
+}
+
+.response-details-container.expanded {
+    max-height: 6000px;
+    opacity: 1;
+    pointer-events: all;
+    margin-top: 32px;
+}
+
 /* Results Section */
 .results-container {
     display: flex;
@@ -744,6 +760,7 @@ button:disabled {
 .sidebar-footer {
     padding: 32px 24px;
     display: flex;
+    flex-direction: column;
     align-items: center;
     gap: 12px;
     justify-content: center;
@@ -817,4 +834,11 @@ button:disabled {
     .sidebar-container.open {
         width: 100%;
     }
+}
+/* Hide Next.js Development Indicator (The N logo) */
+[data-nextjs-toast],
+[data-nextjs-toast-wrapper],
+[class*='nextjs-toast'],
+#nextjs-dev-indicator {
+    display: none !important;
 }

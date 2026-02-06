@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useNav } from '@/context/NavContext';
 import DashboardView from '@/components/DashboardView';
 import ReferencesView from '@/components/ReferencesView';
+import AuthView from '@/components/AuthView';
+import { useAuth } from '@/context/AuthContext';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -33,6 +35,21 @@ export default function Home() {
   const [showDetails, setShowDetails] = useState(false);
   const [expandedReferences, setExpandedReferences] = useState({});
   const { activeView, setActiveView } = useNav();
+  const { user, loading: authLoading } = useAuth();
+
+  console.log("Home Component User:", user);
+
+  if (authLoading) {
+    return (
+      <div style={{ height: '100vh', width: '100vw', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a' }}>
+        <div className="loader"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthView />;
+  }
 
   // If we get a result but haven't run the full audit yet, 
   // we might want the user to click Dashboard to see the empty state 
@@ -110,14 +127,14 @@ export default function Home() {
         ...data,
         prompts: promptsWithIds
       });
-      addToast("✅ Analysis complete! Generated " + data.prompts.length + " test prompts.", "success");
+      addToast("Analysis complete! Generated " + data.prompts.length + " test prompts.", "success");
 
       // Auto-trigger full comparative audit for ALL prompts
-      addToast("🚀 Starting automatic 3-model comparison (Batch Mode)...", "info");
+      addToast("Starting automatic 3-model comparison (Batch Mode)...", "info");
       handleBatchEvaluate(promptsWithIds, data.company_profile);
     } catch (err) {
       setError(err.message);
-      addToast("❌ Analysis failed: " + err.message, "error");
+      addToast("Analysis failed: " + err.message, "error");
     } finally {
       setLoading(false);
     }
@@ -177,7 +194,7 @@ export default function Home() {
     };
 
     // Trigger all 3 batches in parallel
-    addToast("🚀 Dispatching parallel batch requests...", "info");
+    addToast("Dispatching parallel batch requests...", "info");
     const [standardRes, ossRes, googleRes] = await Promise.all([
       runBatch('gemini', 'standard'),
       runBatch('openrouter', 'oss'),
@@ -201,7 +218,7 @@ export default function Home() {
       };
 
       setReport(compositeReport);
-      addToast(`✅ Composite Audit Complete! Score: ${compositeReport.overall_score}`, "success");
+      addToast(`Composite Audit Complete! Score: ${compositeReport.overall_score}`, "success");
     }
   };
 
@@ -301,9 +318,9 @@ export default function Home() {
       setResult(prev => ({ ...prev, prompts: promptsWithIds }));
       setEvalResults({});
       setGoogleEvalResults({});
-      addToast("✅ Prompts refreshed!", "success");
+      addToast("Prompts refreshed!", "success");
     } catch (err) {
-      addToast("❌ Refresh failed: " + err.message, "error");
+      addToast("Refresh failed: " + err.message, "error");
     } finally {
       setRefreshing(false);
     }
@@ -336,7 +353,7 @@ export default function Home() {
       }));
       setBulkPromptText('');
       setShowBulkImport(false);
-      addToast(`✅ Imported ${data.length} prompts!`, "success");
+      addToast(`Imported ${data.length} prompts!`, "success");
     } catch (err) {
       addToast("❌ Import failed: " + err.message, "error");
     }
@@ -348,7 +365,7 @@ export default function Home() {
       await handleBatchEvaluate(result.prompts, result.company_profile);
     } catch (err) {
       console.error('Full audit error:', err);
-      addToast("❌ Full audit failed: " + err.message, "error");
+      addToast("Full audit failed: " + err.message, "error");
     } finally {
       setEvaluatingAll(false);
     }
@@ -453,7 +470,7 @@ export default function Home() {
               <div className="company-name">{result.company_name}</div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                 <div className="industry-badge">{result.industry}</div>
-                <div className="industry-badge" style={{ background: '#f1f5f9', color: 'var(--primary)' }}>🌍 {result.company_profile.region}</div>
+                <div className="industry-badge" style={{ background: '#f1f5f9', color: 'var(--primary)' }}>{result.company_profile.region}</div>
               </div>
             </div>
             <button
@@ -468,7 +485,7 @@ export default function Home() {
           {report && (
             <div className="report-card" style={{ textAlign: 'center', padding: '32px' }}>
               <h2 style={{ fontSize: '1.5rem', color: 'var(--accent)', marginBottom: '16px' }}>
-                ✅ Full Visibility Audit Complete!
+                Full Visibility Audit Complete!
               </h2>
               <p style={{ color: '#64748b', marginBottom: '24px', fontSize: '1rem' }}>
                 Your comprehensive report is ready with a score of <span style={{ color: 'var(--accent)', fontWeight: 'bold' }}>{report.overall_score}/100</span>
@@ -493,7 +510,7 @@ export default function Home() {
 
           <div style={{ marginBottom: '32px', background: '#f8fafc', padding: '24px', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
             <h3 style={{ fontSize: '1.1rem', marginBottom: '16px', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>⚡</span> Test Your Own Prompt
+              Test Your Own Prompt
             </h3>
             <div style={{ display: 'flex', gap: '12px' }}>
               <input
@@ -543,7 +560,7 @@ export default function Home() {
               disabled={refreshing}
               style={{ padding: '8px 16px', fontSize: '0.8rem' }}
             >
-              {refreshing ? 'Refreshing...' : '🔄 Refresh Prompts'}
+              {refreshing ? 'Refreshing...' : 'Refresh Prompts'}
             </button>
           </div>
 
@@ -570,7 +587,7 @@ export default function Home() {
                     style={{ width: '100%', marginBottom: '12px', fontSize: '0.8rem', padding: '12px', background: 'var(--primary)', border: 'none', color: 'white' }}
                     disabled={evaluating[p.id] || evaluatingOSS[p.id] || evaluatingGoogle[p.id]}
                   >
-                    🚀 Run Comparative Audit
+                    Run Comparative Audit
                   </button>
 
                   <div style={{ display: 'flex', gap: '8px' }}>
@@ -613,7 +630,7 @@ export default function Home() {
                             justifyContent: 'space-between'
                           }}
                         >
-                          <span>📚 References / Visited Sites</span>
+                          <span>References / Visited Sites</span>
                           <span>{allSources.length}</span>
                         </button>
 
@@ -728,121 +745,94 @@ export default function Home() {
               </div>
 
               <div className="modal-section" style={{ borderTop: '1px solid #f1f5f9', paddingTop: '32px' }}>
-                {/* LAYER 1: Executive Summary & Leaderboard */}
-                <div className="summary-container" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '24px' }}>
+                {/* Executive Summary Row (Layer 1) */}
+                <div className="summary-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginBottom: '32px' }}>
                   {/* Gemini Summary */}
-                  <div className="summary-card">
-                    <div className="stat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                      <span className="modal-label" style={{ marginBottom: 0, color: 'var(--primary)' }}>Gemini Summary</span>
-                      {evalResults[selectedDetail.promptId] ? (
-                        <span className={`rank-badge ${evalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank ? '' : 'missing'}`}>
-                          Rank: {evalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank || 'N/A'}
-                        </span>
-                      ) : <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Pending Check</span>}
+                  <div className="summary-card" style={{ padding: '24px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '20px', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <span className="modal-label" style={{ marginBottom: 0, color: 'var(--primary)', fontWeight: 800, fontSize: '0.8rem' }}>Gemini</span>
+                      {evalResults[selectedDetail.promptId] && (
+                        <div style={{ background: 'var(--primary-glow)', padding: '4px 8px', borderRadius: '8px', border: '1px solid rgba(37, 99, 235, 0.1)' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--primary)' }}>
+                            Rank: {evalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank || 'N/A'}
+                          </span>
+                        </div>
+                      )}
                     </div>
-
-                    {evalResults[selectedDetail.promptId] && (
-                      <>
-                        <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
-                          <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <span className={`sentiment-dot sentiment-${evalResults[selectedDetail.promptId].evaluation.sentiment}`} />
-                            {evalResults[selectedDetail.promptId].evaluation.sentiment}
-                          </div>
-                          <div>Accuracy: {Math.round(evalResults[selectedDetail.promptId].evaluation.accuracy_score * 100)}%</div>
-                        </div>
-                        <div className="leaderboard-box">
-                          <span className="modal-label" style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Market Leaders</span>
-                          {evalResults[selectedDetail.promptId]?.evaluation?.competitor_ranks?.length > 0 ? (
-                            evalResults[selectedDetail.promptId].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
-                              <div key={idx} className="leaderboard-item">
-                                <span className="rank-number" style={{ color: 'var(--primary)', fontWeight: 700 }}>#{comp.rank || (idx + 1)}</span>
-                                <span className="leader-name" style={{ fontWeight: 500 }}>{comp.name}</span>
-                                {comp.url_cited && <span style={{ fontSize: '0.8rem' }}>🔗</span>}
-                              </div>
-                            ))
-                          ) : <p style={{ fontSize: '0.85rem', color: '#94a3b8', fontStyle: 'italic' }}>No competitors cited.</p>}
-                        </div>
-                      </>
-                    )}
+                    {evalResults[selectedDetail.promptId] ? (
+                      <div className="leaderboard-box" style={{ background: 'white', padding: '12px', borderRadius: '12px', flex: 1 }}>
+                        <span className="modal-label" style={{ fontSize: '0.6rem', color: '#94a3b8', marginBottom: '8px' }}>Market Leaders</span>
+                        {evalResults[selectedDetail.promptId]?.evaluation?.competitor_ranks?.length > 0 ? (
+                          evalResults[selectedDetail.promptId].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
+                            <div key={idx} style={{ display: 'flex', gap: '8px', padding: '6px 0', borderBottom: idx === 2 ? 'none' : '1px solid #f1f5f9' }}>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary)' }}>{idx + 1}</span>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#334155' }}>{comp.name}</span>
+                            </div>
+                          ))
+                        ) : <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>None cited</span>}
+                      </div>
+                    ) : <div style={{ height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '0.75rem' }}>Scanning...</div>}
                   </div>
 
-                  {/* GPT-OSS Summary */}
-                  <div className="summary-card" style={{ borderColor: '#fed7aa', background: '#fffaf5' }}>
-                    <div className="stat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                      <span className="modal-label" style={{ color: '#c2410c', marginBottom: 0 }}>Claude Summary</span>
-                      {ossEvalResults[selectedDetail.promptId] ? (
-                        <span className={`rank-badge`} style={{ background: '#ffedd5', color: '#c2410c' }}>
-                          Rank: {ossEvalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank || 'N/A'}
-                        </span>
-                      ) : <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Pending Check</span>}
+                  {/* Claude Summary */}
+                  <div className="summary-card" style={{ padding: '24px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '20px', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <span className="modal-label" style={{ marginBottom: 0, color: '#c2410c', fontWeight: 800, fontSize: '0.8rem' }}>Claude</span>
+                      {ossEvalResults[selectedDetail.promptId] && (
+                        <div style={{ background: 'rgba(249, 115, 22, 0.05)', padding: '4px 8px', borderRadius: '8px', border: '1px solid rgba(249, 115, 22, 0.1)' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#c2410c' }}>
+                            Rank: {ossEvalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank || 'N/A'}
+                          </span>
+                        </div>
+                      )}
                     </div>
-
-                    {ossEvalResults[selectedDetail.promptId] && (
-                      <>
-                        <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', fontSize: '0.85rem', color: '#9a3412', fontWeight: 500 }}>
-                          <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <span className={`sentiment-dot sentiment-${ossEvalResults[selectedDetail.promptId].evaluation.sentiment}`} />
-                            {ossEvalResults[selectedDetail.promptId].evaluation.sentiment}
-                          </div>
-                          <div>Accuracy: {Math.round(ossEvalResults[selectedDetail.promptId].evaluation.accuracy_score * 100)}%</div>
-                        </div>
-                        <div className="leaderboard-box" style={{ background: 'white' }}>
-                          <span className="modal-label" style={{ fontSize: '0.65rem', color: '#c2410c' }}>Market Leaders</span>
-                          {ossEvalResults[selectedDetail.promptId]?.evaluation?.competitor_ranks?.length > 0 ? (
-                            ossEvalResults[selectedDetail.promptId].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
-                              <div key={idx} className="leaderboard-item">
-                                <span className="rank-number" style={{ color: '#f97316', fontWeight: 700 }}>#{comp.rank || (idx + 1)}</span>
-                                <span className="leader-name" style={{ fontWeight: 500 }}>{comp.name}</span>
-                                {comp.url_cited && <span style={{ fontSize: '0.8rem' }}>🔗</span>}
-                              </div>
-                            ))
-                          ) : <p style={{ fontSize: '0.85rem', color: '#94a3b8', fontStyle: 'italic' }}>No competitors cited.</p>}
-                        </div>
-                      </>
-                    )}
+                    {ossEvalResults[selectedDetail.promptId] ? (
+                      <div className="leaderboard-box" style={{ background: 'white', padding: '12px', borderRadius: '12px', flex: 1 }}>
+                        <span className="modal-label" style={{ fontSize: '0.6rem', color: '#c2410c', marginBottom: '8px', opacity: 0.6 }}>Market Leaders</span>
+                        {ossEvalResults[selectedDetail.promptId]?.evaluation?.competitor_ranks?.length > 0 ? (
+                          ossEvalResults[selectedDetail.promptId].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
+                            <div key={idx} style={{ display: 'flex', gap: '8px', padding: '6px 0', borderBottom: idx === 2 ? 'none' : '1px solid #f1f5f9' }}>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#f97316' }}>{idx + 1}</span>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#334155' }}>{comp.name}</span>
+                            </div>
+                          ))
+                        ) : <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>None cited</span>}
+                      </div>
+                    ) : <div style={{ height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '0.75rem' }}>Scanning...</div>}
                   </div>
 
                   {/* Google Summary */}
-                  <div className="summary-card" style={{ borderColor: '#99f6e4', background: '#f0fdfa' }}>
-                    <div className="stat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                      <span className="modal-label" style={{ color: 'var(--accent)', marginBottom: 0 }}>Google AI Search</span>
-                      {googleEvalResults[selectedDetail.promptId] ? (
-                        <span className={`rank-badge ${googleEvalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank ? '' : 'missing'}`}>
-                          Rank: {googleEvalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank || 'N/A'}
-                        </span>
-                      ) : <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Pending Search</span>}
+                  <div className="summary-card" style={{ padding: '24px', background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: '20px', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <span className="modal-label" style={{ marginBottom: 0, color: 'var(--accent)', fontWeight: 800, fontSize: '0.8rem' }}>Google Search</span>
+                      {googleEvalResults[selectedDetail.promptId] && (
+                        <div style={{ background: 'rgba(13, 148, 136, 0.05)', padding: '4px 8px', borderRadius: '8px', border: '1px solid rgba(13, 148, 136, 0.1)' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--accent)' }}>
+                            Rank: {googleEvalResults[selectedDetail.promptId]?.evaluation?.recommendation_rank || 'N/A'}
+                          </span>
+                        </div>
+                      )}
                     </div>
-
-                    {googleEvalResults[selectedDetail.promptId] && (
-                      <>
-                        <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', fontSize: '0.85rem', color: '#0d9488', fontWeight: 500 }}>
-                          <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <span className={`sentiment-dot sentiment-${googleEvalResults[selectedDetail.promptId].evaluation.sentiment}`} />
-                            {googleEvalResults[selectedDetail.promptId].evaluation.sentiment}
-                          </div>
-                          <div>Accuracy: {Math.round(googleEvalResults[selectedDetail.promptId].evaluation.accuracy_score * 100)}%</div>
-                        </div>
-                        <div className="leaderboard-box" style={{ background: 'white' }}>
-                          <span className="modal-label" style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>Search Dominance</span>
-                          {googleEvalResults[selectedDetail.promptId]?.evaluation?.competitor_ranks?.length > 0 ? (
-                            googleEvalResults[selectedDetail.promptId].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
-                              <div key={idx} className="leaderboard-item">
-                                <span className="rank-number" style={{ color: 'var(--accent)', fontWeight: 700 }}>#{comp.rank || (idx + 1)}</span>
-                                <span className="leader-name" style={{ fontWeight: 500 }}>{comp.name}</span>
-                                {comp.url_cited && <span style={{ fontSize: '0.8rem' }}>🔗</span>}
-                              </div>
-                            ))
-                          ) : <p style={{ fontSize: '0.85rem', color: '#94a3b8', fontStyle: 'italic' }}>No external leaders found.</p>}
-                        </div>
-                      </>
-                    )}
+                    {googleEvalResults[selectedDetail.promptId] ? (
+                      <div className="leaderboard-box" style={{ background: 'white', padding: '12px', borderRadius: '12px', flex: 1 }}>
+                        <span className="modal-label" style={{ fontSize: '0.6rem', color: 'var(--accent)', marginBottom: '8px', opacity: 0.6 }}>Search Dominance</span>
+                        {googleEvalResults[selectedDetail.promptId]?.evaluation?.competitor_ranks?.length > 0 ? (
+                          googleEvalResults[selectedDetail.promptId].evaluation.competitor_ranks.slice(0, 3).map((comp, idx) => (
+                            <div key={idx} style={{ display: 'flex', gap: '8px', padding: '6px 0', borderBottom: idx === 2 ? 'none' : '1px solid #f1f5f9' }}>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent)' }}>{idx + 1}</span>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#334155' }}>{comp.name}</span>
+                            </div>
+                          ))
+                        ) : <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>None found</span>}
+                      </div>
+                    ) : <div style={{ height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '0.75rem' }}>Scanning...</div>}
                   </div>
                 </div>
 
-                {/* LAYER 2: Transition Toggle */}
+                {/* Layer 2: Transition Toggle */}
                 {(evalResults[selectedDetail.promptId] || googleEvalResults[selectedDetail.promptId] || ossEvalResults[selectedDetail.promptId]) ? (
-                  <button className="detailed-toggle-btn" onClick={() => setShowDetails(!showDetails)}>
-                    {showDetails ? '▲ Hide Technical Reasoning' : '▼ Explore Detailed AI Reasoning & Full Output'}
+                  <button className="detailed-toggle-btn" onClick={() => setShowDetails(!showDetails)} style={{ margin: '0 0 32px 0' }}>
+                    {showDetails ? '▲ Hide Technical Outputs' : '▼ See Full AI Output'}
                   </button>
                 ) : (
                   <div style={{ display: 'flex', gap: '16px', marginTop: '24px' }}>
@@ -852,52 +842,60 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* LAYER 3: Detailed Output */}
-                <div className={`response-details-container ${showDetails ? 'expanded' : 'collapsed'}`}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '24px', alignItems: 'start' }}>
-                    {/* Gemini Detailed */}
-                    <div>
-                      <span className="modal-label" style={{ color: 'var(--primary)' }}>Gemini Full Transcript</span>
-                      {evalResults[selectedDetail.promptId] && (
-                        <div className="response-full" style={{ borderLeft: '4px solid var(--primary)', background: '#f8fafc', height: '500px', overflowY: 'auto' }}>
-                          <div>{evalResults[selectedDetail.promptId].response_text}</div>
+                {/* Layer 3: Collapsible Detailed Output */}
+                <div className={`response-details-container ${showDetails ? 'expanded' : ''}`}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '48px' }}>
+                    {/* Gemini Output */}
+                    {evalResults[selectedDetail.promptId] && (
+                      <div className="output-section">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                          <span className="modal-label" style={{ marginBottom: 0, color: 'var(--primary)', fontSize: '0.9rem' }}>Gemini Full Transcript</span>
+                          <div style={{ height: '1px', flex: 1, background: '#f1f5f9' }}></div>
                         </div>
-                      )}
-                    </div>
-
-                    {/* OSS Detailed */}
-                    <div>
-                      <span className="modal-label" style={{ color: '#f97316' }}>Claude Full Transcript</span>
-                      {ossEvalResults[selectedDetail.promptId] && (
-                        <div className="response-full" style={{ borderLeft: '4px solid #f97316', background: '#fffaf5', height: '500px', overflowY: 'auto' }}>
-                          <div>{ossEvalResults[selectedDetail.promptId].response_text}</div>
+                        <div className="response-full" style={{ borderLeft: '4px solid var(--primary)', background: '#f8fafc', maxHeight: '500px', overflowY: 'auto' }}>
+                          <div style={{ whiteSpace: 'pre-wrap' }}>{evalResults[selectedDetail.promptId].response_text}</div>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
 
-                    {/* Google Detailed */}
-                    <div>
-                      <span className="modal-label" style={{ color: 'var(--accent)' }}>Google Search Full Transcript</span>
-                      {googleEvalResults[selectedDetail.promptId] && (
-                        <>
-                          <div className="response-full" style={{ borderLeft: '4px solid var(--accent)', background: '#f0fdfa', height: '500px', overflowY: 'auto' }}>
-                            <div>{googleEvalResults[selectedDetail.promptId].response_text}</div>
-                          </div>
+                    {/* Claude Output */}
+                    {ossEvalResults[selectedDetail.promptId] && (
+                      <div className="output-section">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                          <span className="modal-label" style={{ marginBottom: 0, color: '#f97316', fontSize: '0.9rem' }}>Claude Full Transcript</span>
+                          <div style={{ height: '1px', flex: 1, background: '#f1f5f9' }}></div>
+                        </div>
+                        <div className="response-full" style={{ borderLeft: '4px solid #f97316', background: '#fffaf5', maxHeight: '500px', overflowY: 'auto' }}>
+                          <div style={{ whiteSpace: 'pre-wrap' }}>{ossEvalResults[selectedDetail.promptId].response_text}</div>
+                        </div>
+                      </div>
+                    )}
 
-                          {googleEvalResults[selectedDetail.promptId].sources && googleEvalResults[selectedDetail.promptId].sources.length > 0 && (
-                            <div className="source-list" style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #e2e8f0' }}>
-                              <span className="modal-label" style={{ fontSize: '0.7rem', color: 'var(--accent)', marginBottom: '16px' }}>Verified Search Citations</span>
+                    {/* Google Output */}
+                    {googleEvalResults[selectedDetail.promptId] && (
+                      <div className="output-section">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                          <span className="modal-label" style={{ marginBottom: 0, color: 'var(--accent)', fontSize: '0.9rem' }}>Google Search Full Transcript</span>
+                          <div style={{ height: '1px', flex: 1, background: '#f1f5f9' }}></div>
+                        </div>
+                        <div className="response-full" style={{ borderLeft: '4px solid var(--accent)', background: '#f0fdfa', maxHeight: '500px', overflowY: 'auto' }}>
+                          <div style={{ whiteSpace: 'pre-wrap' }}>{googleEvalResults[selectedDetail.promptId].response_text}</div>
+                        </div>
+                        {googleEvalResults[selectedDetail.promptId].sources && (
+                          <div className="source-list" style={{ marginTop: '24px', padding: '24px', background: '#f0fdfa', borderRadius: '16px', border: '1px solid #99f6e4' }}>
+                            <span className="modal-label" style={{ fontSize: '0.7rem', color: 'var(--accent)', marginBottom: '16px' }}>Verified Search Citations</span>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                               {googleEvalResults[selectedDetail.promptId].sources.map((source, idx) => (
-                                <a key={idx} href={source.url} target="_blank" rel="noopener noreferrer" className="source-item" style={{ padding: '16px', background: 'white' }}>
-                                  <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: '4px' }}>{source.title}</div>
-                                  <span className="source-url" style={{ color: '#94a3b8' }}>{source.url}</span>
+                                <a key={idx} href={source.url} target="_blank" rel="noopener noreferrer" className="source-item" style={{ padding: '12px', background: 'white', borderRadius: '12px', textDecoration: 'none' }}>
+                                  <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: '4px', fontSize: '0.8rem' }}>{source.title}</div>
+                                  <span className="source-url" style={{ color: '#94a3b8', fontSize: '0.7rem' }}>{source.url.substring(0, 40)}...</span>
                                 </a>
                               ))}
                             </div>
-                          )}
-                        </>
-                      )}
-                    </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

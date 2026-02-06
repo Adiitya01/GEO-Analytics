@@ -8,6 +8,7 @@ from typing import List, Optional
 from app.schemas import CompanyUnderstanding, GeneratedPrompt, ModelResponse, EvaluationMetric, VisibilityReport, SearchSource
 from app.config import GEMINI_API_KEY, GEMINI_MODEL_NAME, CEREBRAS_API_KEY, CEREBRAS_MODEL_NAME, OPENROUTER_MODEL_NAME
 from app.ai_client import generate_ai_response, gemini_client, grounding_tool, cerebras_client
+from app.site_metadata import enrich_sources_with_metadata, extract_urls_from_text, extract_domain
 
 async def evaluate_single_prompt(
     company: CompanyUnderstanding, 
@@ -38,46 +39,60 @@ async def evaluate_single_prompt(
             # --- GEMINI Grounding Logic ---
             response_text = raw_ai_result.text
             
-            # 1. Add the "Search Result Reference" link (Original Google AI Search logic)
+            # 1. Add the "Search Result Reference" link (Generic Search URL)
             sources.append(SearchSource(
-                title="Live Google Search Grounding",
-                url="https://www.google.com/search?q=" + gen_prompt.prompt_text.replace(" ", "+")
+                title="Google Search Grounding",
+                url="https://www.google.com/search?q=" + gen_prompt.prompt_text.replace(" ", "+"),
+                source_type="search_grounding",
+                is_grounded=False
             ))
 
-            # 2. Extract official grounding sources from Gemini metadata
+            # 2. Extract official grounding sources from Gemini metadata (REAL SITE VISITS)
             if raw_ai_result.candidates[0].grounding_metadata:
                 metadata = raw_ai_result.candidates[0].grounding_metadata
                 if metadata.grounding_chunks:
                     for chunk in metadata.grounding_chunks:
                         if chunk.web:
-                            sources.append(SearchSource(
-                                title=chunk.web.title or "Verified Web Source",
-                                url=chunk.web.uri
-                            ))
+                            # Verify if already added to avoid duplicates
+                            if not any(s.url == chunk.web.uri for s in sources):
+                                sources.append(SearchSource(
+                                    title=chunk.web.title or "Verified Web Source",
+                                    url=chunk.web.uri,
+                                    source_type="web",
+                                    is_grounded=True
+                                ))
         else:
             # --- CLAUDE / Other Models Logic ---
             response_text = str(raw_ai_result)
 
         # 3. GLOBAL Extraction: Regex scan for any URLs in the text (works for Claude/Cerebras too)
-        import re
-        url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'
-        found_urls = re.findall(url_pattern, response_text)
-        unique_urls = list(set(found_urls))
+        unique_urls = extract_urls_from_text(response_text)
         
         # Add regex found URLs if they aren't already in sources
         existing_urls = [s.url for s in sources]
         for url in unique_urls:
-            clean_url = url.rstrip(').,;!?')
-            if clean_url and clean_url not in existing_urls:
+            if url not in existing_urls:
                 title = f"Reference found in response"
                 if "openrouter" in provider.lower() or "claude" in provider.lower():
                     title = f"Claude Reference"
                 elif "cerebras" in provider.lower():
                     title = f"Cerebras Source"
                 
-                sources.append(SearchSource(title=title, url=clean_url))
+                sources.append(SearchSource(
+                    title=title, 
+                    url=url, 
+                    source_type="extracted_url",
+                    is_grounded=True # If the AI puts a URL in the text, it's usually a specific site visit/reference
+                ))
 
-        print(f"[SUCCESS] Generated response for '{gen_prompt.prompt_text[:20]}...' with {len(sources)} reference(s)")
+        print(f"[SUCCESS] Generated response for '{gen_prompt.prompt_text[:20]}...' with {len(sources)} initial reference(s)")
+        
+        # --- ENRICHMENT STEP ---
+        # Fetch rich metadata (favicon, description, etc) for all identified sources
+        if sources:
+            print(f"[INFO] Enriching {len(sources)} sources with metadata...")
+            sources = await enrich_sources_with_metadata(sources)
+
     except Exception as e:
         error_msg = str(e)
         print(f"[ERROR] Content generation failed: {error_msg}")
@@ -92,18 +107,21 @@ async def evaluate_single_prompt(
             response_text = f"Analysis error: {error_msg}"
         
         # IMPORTANT: Even on error, try to extract any URLs from the error message or partial response
-        import re
-        url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'
-        found_urls = re.findall(url_pattern, response_text + " " + error_msg)
-        unique_urls = list(set(found_urls))
+        unique_urls = extract_urls_from_text(response_text + " " + error_msg)
         
+        error_sources = []
         for url in unique_urls:
-            clean_url = url.rstrip(').,;!?')
-            if clean_url and clean_url not in [s.url for s in sources]:  # Avoid duplicates
-                sources.append(SearchSource(
+            if url not in [s.url for s in sources]:  # Avoid duplicates
+                error_sources.append(SearchSource(
                     title=f"Reference from Error ({provider.capitalize()})",
-                    url=clean_url
+                    url=url,
+                    source_type="error_reference",
+                    is_grounded=False
                 ))
+        
+        if error_sources:
+            enriched_error_sources = await enrich_sources_with_metadata(error_sources)
+            sources.extend(enriched_error_sources)
 
     # 2. Use AI to EVALUATE the response
     eval_provider = "cerebras" if cerebras_client else "gemini"
@@ -247,12 +265,22 @@ async def evaluate_visibility(company: CompanyUnderstanding, prompts: List[Gener
     avg_accuracy = sum(r.evaluation.accuracy_score for r in model_results) / len(model_results) if model_results else 0
 
     # Aggregate competitor info
-    comp_stats = {} # name -> {mentions: int, ranks: []}
-    for r in model_results:
+    comp_stats = {} # name -> {mentions: int, ranks: [], prompts: [], sources: []}
+    for idx, r in enumerate(model_results):
+        orig_prompt_text = prompts[idx].prompt_text if idx < len(prompts) else "Unknown Query"
+        
         for name in r.evaluation.competitors_mentioned:
             if name not in comp_stats:
-                comp_stats[name] = {"mentions": 0, "ranks": []}
+                comp_stats[name] = {"mentions": 0, "ranks": [], "prompts": [], "sources": []}
             comp_stats[name]["mentions"] += 1
+            if orig_prompt_text not in comp_stats[name]["prompts"]:
+                comp_stats[name]["prompts"].append(orig_prompt_text)
+            
+            # Associate sources from this response with the competitor
+            for src in r.sources:
+                # Avoid duplicates by checking URL
+                if not any(existing.url == src.url for existing in comp_stats[name]["sources"]):
+                    comp_stats[name]["sources"].append(src)
             
         for c in r.evaluation.competitor_ranks:
             if c.name in comp_stats and c.rank is not None:
@@ -275,27 +303,41 @@ async def evaluate_visibility(company: CompanyUnderstanding, prompts: List[Gener
         f"Total competitors identified: {len(comp_stats)}"
     ]
     optimizer_tips = []
+    competitor_reasons = {}
 
     try:
         report_provider = "cerebras" if cerebras_client else "gemini"
         
+        # Prepare context for competitor reasoning
+        comp_context_list = []
+        for name, stats in sorted_comps[:10]:
+            avg_r = sum(stats["ranks"]) / len(stats["ranks"]) if stats["ranks"] else "N/A"
+            comp_context_list.append(f"- {name}: {stats['mentions']} mentions, Avg Rank: {avg_r}")
+        comp_context = "\n".join(comp_context_list)
+
         report_prompt = f"""
 You are a Senior GEO (Generative Engine Optimization) Strategist focusing on the {company.region} market. Analyze these results for "{company.company_name}".
 
 Company Context: {company.company_summary}
 Performance: {mentions}/{len(prompts)} mentions, {round(avg_accuracy*100)}% accuracy.
 Focus Region: {company.region}
-Competitors: {", ".join(list(comp_stats.keys())[:5])}
+
+Top Competitors Found:
+{comp_context}
 
 Instructions:
 1. Provide 3-4 specific 'key_findings' about their current AI visibility.
 2. Provide 3-4 'optimizer_tips' that are EXTREMELY SPECIFIC to this company's industry and offerings. 
-3. Return valid JSON.
+3. For each top competitor listed above, provides a 'competitor_reasons' entry (mapping name to string) explaining why they are frequently cited or ranking high (e.g. better local SEO, specific feature mentions, or stronger brand authority). Explain what they have that {company.company_name} might be missing in this context.
+4. Return valid JSON only. DO NOT use any emojis in your response.
 
 Schema:
 {{
   "key_findings": ["insight 1", "insight 2"],
-  "optimizer_tips": ["actionable tip 1", "actionable tip 2"]
+  "optimizer_tips": ["actionable tip 1", "actionable tip 2"],
+  "competitor_reasons": {{
+    "Competitor Name": "One sentence explanation of their GEO edge."
+  }}
 }}
 """
         loop = asyncio.get_running_loop()
@@ -309,8 +351,24 @@ Schema:
                 key_findings = report_data["key_findings"]
             if report_data.get("optimizer_tips"):
                 optimizer_tips = report_data["optimizer_tips"]
+            if report_data.get("competitor_reasons"):
+                competitor_reasons = report_data["competitor_reasons"]
     except Exception as e:
         print(f"[WARNING] AI summary generation failed: {e}")
+
+    # Build final CompetitorInsight list
+    competitor_insights = []
+    from app.schemas import CompetitorInsight
+    for name, stats in sorted_comps:
+        avg_rank = sum(stats["ranks"]) / len(stats["ranks"]) if stats["ranks"] else None
+        competitor_insights.append(CompetitorInsight(
+            name=name,
+            mentions=stats["mentions"],
+            avg_rank=avg_rank,
+            prompts_appeared=stats["prompts"][:5], # Limit to 5 for space
+            sources=stats["sources"][:10], # Limit to 10 sources per competitor
+            visibility_reason=competitor_reasons.get(name, "Commonly associated with this industry category in model training data.")
+        ))
 
     return VisibilityReport(
         company_name=company.company_name,
@@ -319,5 +377,6 @@ Schema:
         model_results=model_results,
         key_findings=key_findings,
         optimizer_tips=optimizer_tips,
+        competitor_insights=competitor_insights,
         competitor_summary=competitor_summary
     )

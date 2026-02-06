@@ -1,8 +1,11 @@
 "use client";
 
-import { TrendingUp, Award, Zap, Users, BarChart3, Target, Search, ArrowRight } from 'lucide-react';
+import { useState } from 'react';
+import { TrendingUp, Award, Zap, Users, BarChart3, Target, Search, ArrowRight, X, Info } from 'lucide-react';
 
 export default function DashboardView({ report, companyProfile }) {
+    const [selectedComp, setSelectedComp] = useState(null);
+
     if (!report) {
         return (
             <div style={{
@@ -134,7 +137,7 @@ export default function DashboardView({ report, companyProfile }) {
                         </p>
                     </div>
                     <div style={{ padding: '16px', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.85rem', color: '#64748b' }}>
-                        💡 Tip: Strengthening citations will boost this metric.
+                        Tip: Strengthening citations will boost this metric.
                     </div>
                 </div>
             </div>
@@ -174,34 +177,222 @@ export default function DashboardView({ report, companyProfile }) {
             <section style={{ marginBottom: '60px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
                     <Users size={24} style={{ color: 'var(--primary)' }} />
-                    <h2 style={{ fontSize: '1.5rem', color: 'var(--foreground)', fontWeight: 700 }}>Market Competitor visibility</h2>
+                    <h2 style={{ fontSize: '1.5rem', color: 'var(--foreground)', fontWeight: 700 }}>Market Competitor visibility (Top 15 of {report.competitor_insights?.length || report.competitor_summary?.length || 0})</h2>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '20px' }}>
-                    {report.competitor_summary?.map((summary, i) => (
-                        <div key={i} style={{
-                            background: 'white',
-                            padding: '24px',
-                            borderRadius: '24px',
-                            border: '1px solid rgba(0,0,0,0.06)',
-                            boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)',
-                            transition: 'all 0.3s ease'
-                        }}
-                            onMouseOver={(e) => {
-                                e.currentTarget.style.borderColor = 'var(--primary)';
-                                e.currentTarget.style.transform = 'translateY(-4px)';
-                                e.currentTarget.style.boxShadow = '0 20px 25px -5px rgba(0,0,0,0.05)';
+                    {report.competitor_insights ? (
+                        report.competitor_insights.slice(0, 15).map((comp, i) => (
+                            <div key={i} style={{
+                                background: 'white',
+                                padding: '24px',
+                                borderRadius: '24px',
+                                border: '1px solid rgba(0,0,0,0.06)',
+                                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)',
+                                transition: 'all 0.3s ease',
+                                cursor: 'pointer'
                             }}
-                            onMouseOut={(e) => {
-                                e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)';
-                                e.currentTarget.style.transform = 'translateY(0)';
-                                e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.02)';
+                                onClick={() => setSelectedComp(comp)}
+                                onMouseOver={(e) => {
+                                    e.currentTarget.style.borderColor = 'var(--primary)';
+                                    e.currentTarget.style.transform = 'translateY(-4px)';
+                                    e.currentTarget.style.boxShadow = '0 20px 25px -5px rgba(0,0,0,0.05)';
+                                }}
+                                onMouseOut={(e) => {
+                                    e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)';
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.02)';
+                                }}
+                            >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                                    <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--foreground)' }}>{comp.name}</h4>
+                                    <div style={{ background: 'var(--primary-light)', padding: '4px 8px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: 'white' }}>
+                                        Rank: {comp.avg_rank ? Number(comp.avg_rank).toFixed(1) : 'N/A'}
+                                    </div>
+                                </div>
+                                <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '16px', lineHeight: '1.5' }}>
+                                    {comp.visibility_reason.substring(0, 100)}...
+                                </p>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>
+                                    <Info size={14} /> View Gap Analysis
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        (report.competitor_summary || []).slice(0, 15).map((summary, i) => (
+                            <div key={i} style={{
+                                background: 'white',
+                                padding: '24px',
+                                borderRadius: '24px',
+                                border: '1px solid rgba(0,0,0,0.06)',
+                                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)',
+                                transition: 'all 0.3s ease',
+                                cursor: 'pointer'
                             }}
-                        >
-                            <p style={{ color: '#475569', lineHeight: '1.7', fontSize: '0.95rem', fontWeight: 500 }}>{summary}</p>
-                        </div>
-                    ))}
+                                onClick={() => setSelectedComp({
+                                    name: summary.split(':')[0],
+                                    mentions: summary.match(/Appearances=(\d+)/)?.[1] || '?',
+                                    avg_rank: summary.match(/Avg Rank=([\d.]+)/)?.[1] || 'N/A',
+                                    visibility_reason: "Deep-dive analysis is pending. Please run a 'Full Visibility Audit' again to generate specific AI gap analysis and visible prompt lists for this competitor.",
+                                    prompts_appeared: []
+                                })}
+                                onMouseOver={(e) => {
+                                    e.currentTarget.style.borderColor = 'var(--primary)';
+                                    e.currentTarget.style.transform = 'translateY(-4px)';
+                                    e.currentTarget.style.boxShadow = '0 20px 25px -5px rgba(0,0,0,0.05)';
+                                }}
+                                onMouseOut={(e) => {
+                                    e.currentTarget.style.borderColor = 'rgba(0,0,0,0.06)';
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.02)';
+                                }}
+                            >
+                                <p style={{ color: '#475569', lineHeight: '1.7', fontSize: '0.95rem', fontWeight: 500 }}>{summary}</p>
+                                <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 700 }}>
+                                    <Zap size={12} /> RE-RUN AUDIT FOR DRILL-DOWN
+                                </div>
+                            </div>
+                        ))
+                    )}
                 </div>
+                {((report.competitor_insights?.length || report.competitor_summary?.length || 0) > 15) && (
+                    <div style={{
+                        marginTop: '24px',
+                        padding: '16px',
+                        textAlign: 'center',
+                        color: '#64748b',
+                        fontSize: '0.9rem',
+                        fontWeight: 500,
+                        background: 'rgba(0,0,0,0.02)',
+                        borderRadius: '12px',
+                        border: '1px dashed rgba(0,0,0,0.1)'
+                    }}>
+                        {/* Showing top 15 of {report.competitor_insights?.length || report.competitor_summary?.length} competitors. {(report.competitor_insights?.length || report.competitor_summary?.length) - 15} additional competitors were truncated. */}
+                    </div>
+                )}
             </section>
+
+            {/* Competitor Drill-down Modal */}
+            {selectedComp && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0,0,0,0.4)',
+                    backdropFilter: 'blur(8px)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000,
+                    animation: 'fadeIn 0.3s ease'
+                }} onClick={() => setSelectedComp(null)}>
+                    <div style={{
+                        background: 'white',
+                        width: '90%',
+                        maxWidth: '700px',
+                        maxHeight: '80vh',
+                        overflowY: 'auto',
+                        borderRadius: '32px',
+                        padding: '40px',
+                        boxShadow: '0 40px 100px -20px rgba(0,0,0,0.25)',
+                        position: 'relative',
+                        animation: 'slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1)'
+                    }} onClick={e => e.stopPropagation()}>
+                        <button
+                            onClick={() => setSelectedComp(null)}
+                            style={{ position: 'absolute', top: '24px', right: '24px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                        >
+                            <X size={32} />
+                        </button>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '32px' }}>
+                            <div style={{ background: 'rgba(37, 99, 235, 0.1)', padding: '16px', borderRadius: '16px' }}>
+                                <Users size={32} style={{ color: 'var(--primary)' }} />
+                            </div>
+                            <div>
+                                <h2 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>{selectedComp.name}</h2>
+                                <p style={{ color: '#64748b', fontSize: '0.95rem', fontWeight: 500, marginTop: '4px' }}>Market Competitor Drill-down</p>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '32px' }}>
+                            <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '24px', border: '1px solid #e2e8f0' }}>
+                                <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Model Appearances</div>
+                                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--foreground)' }}>{selectedComp.mentions} Citations</div>
+                            </div>
+                            <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '24px', border: '1px solid #e2e8f0' }}>
+                                <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Average Ranking</div>
+                                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)' }}>#{selectedComp.avg_rank ? Number(selectedComp.avg_rank).toFixed(1) : 'N/A'}</div>
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: '24px' }}>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--foreground)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Zap size={18} style={{ color: 'var(--accent)' }} /> Visible in these Prompts:
+                            </h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '120px', overflowY: 'auto' }}>
+                                {selectedComp.prompts_appeared.map((p, idx) => (
+                                    <div key={idx} style={{ padding: '10px 14px', background: '#f0f9ff', border: '1px solid #e0f2fe', borderRadius: '10px', fontSize: '0.85rem', color: '#0369a1', fontWeight: 500 }}>
+                                        "{p}"
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Sources Section */}
+                        {selectedComp.sources && selectedComp.sources.length > 0 && (
+                            <div style={{ marginBottom: '24px' }}>
+                                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--foreground)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <Search size={18} style={{ color: '#7c3aed' }} /> Referenced Sources:
+                                </h3>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '120px', overflowY: 'auto' }}>
+                                    {selectedComp.sources.map((src, idx) => (
+                                        <a
+                                            key={idx}
+                                            href={src.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            style={{
+                                                padding: '12px 16px',
+                                                background: '#f5f3ff',
+                                                border: '1px solid #ede9fe',
+                                                borderRadius: '12px',
+                                                fontSize: '0.85rem',
+                                                color: '#7c3aed',
+                                                fontWeight: 500,
+                                                textDecoration: 'none',
+                                                display: 'block',
+                                                transition: 'all 0.2s ease'
+                                            }}
+                                            onMouseOver={(e) => {
+                                                e.currentTarget.style.background = '#ede9fe';
+                                                e.currentTarget.style.transform = 'translateX(4px)';
+                                            }}
+                                            onMouseOut={(e) => {
+                                                e.currentTarget.style.background = '#f5f3ff';
+                                                e.currentTarget.style.transform = 'translateX(0)';
+                                            }}
+                                        >
+                                            <div style={{ fontWeight: 700, marginBottom: '4px' }}>{src.title || 'Source'}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#a78bfa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{src.url}</div>
+                                        </a>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div>
+                            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--foreground)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Target size={20} style={{ color: 'var(--primary)' }} /> GEO Gap Analysis:
+                            </h3>
+                            <div style={{ background: '#fdf2f8', border: '1px solid #fce7f3', padding: '24px', borderRadius: '24px', color: '#9d174d', lineHeight: '1.6', fontSize: '1rem', fontWeight: 500 }}>
+                                <span style={{ fontWeight: 800 }}>Why {selectedComp.name}?</span> {selectedComp.visibility_reason}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

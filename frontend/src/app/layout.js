@@ -6,13 +6,17 @@ export const metadata = {
     description: "Improve your company's visibility in generative search results.",
 };
 
+import { AuthProvider } from "@/context/AuthContext";
+
 export default function RootLayout({ children }) {
     return (
         <html lang="en">
             <body>
-                <LayoutWrapper>
-                    {children}
-                </LayoutWrapper>
+                <AuthProvider>
+                    <LayoutWrapper>
+                        {children}
+                    </LayoutWrapper>
+                </AuthProvider>
             </body>
         </html>
     );
