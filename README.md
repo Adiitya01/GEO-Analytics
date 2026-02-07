@@ -2,7 +2,6 @@
 
 **Generative Engine Optimization (GEO) Analytics Tool**
 
-[**Live Backend**](https://geo-backend-0z6g.onrender.com) | [**GitHub**](https://github.com/Adiitya01/GEO-ANALYTICS)
 
 This project helps companies analyze and improve their visibility in AI-powered search engines (like ChatGPT, Gemini, Perplexity). It analyzes your website content, understands your value proposition, and generates realistic user prompts to test how well your brand shows up in AI responses.
 
